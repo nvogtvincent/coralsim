@@ -11,15 +11,16 @@ experiments in OceanParcels.
 
 import numpy as np
 import matplotlib.pyplot as plt
-import cmocean.cm as cm
 import pandas as pd
+import cartopy.crs as ccrs
+import matplotlib.ticker as mticker
+import warnings
 from parcels import (Field, FieldSet, ParticleSet, JITParticle, AdvectionRK4,
                      ErrorCode, Geographic, GeographicPolar, Variable,
                      DiffusionUniformKh, ParcelsRandom)
 from netCDF4 import Dataset, num2date
 from datetime import timedelta, datetime
-from glob import glob
-from sys import argv
+
 
 
 class experiment():
@@ -36,7 +37,7 @@ class experiment():
         set_
     """
 
-    def __init__(self):
+    def __init__(self, root_dir):
         # Set up a status dictionary so we know the completion status of the
         # experiment configuration
 
@@ -49,6 +50,8 @@ class experiment():
         # Set up dictionaries for various parameters
         self.fh = {}
         self.params = {}
+
+        self.root_dir = root_dir
 
     def import_grid(self, **kwargs):
         """
@@ -175,24 +178,23 @@ class experiment():
         elif 'coral_varname' not in kwargs.keys():
             raise KeyError('Must pass coral_varname as an argument')
 
-        if 'use_grp' in kwargs.keys():
-            if 'grp_varname' not in kwargs.keys():
-                raise KeyError('Please give the group variable name if you want to include groups')
-        else:
-            kwargs['use_grp'] = False
+        if 'export_grp' not in kwargs.keys():
+            kwargs['export_grp'] = False
 
-        if 'use_eez' in kwargs.keys():
-            if 'eez_varname' not in kwargs.keys():
-                raise KeyError('Please give the EEZ variable name if you want to include EEZs')
-        else:
-            kwargs['use_grp'] = False
+        if 'export_eez' not in kwargs.keys():
+            kwargs['export_eez'] = False
 
-        if 'use_coral_cover' not in kwargs.keys():
-            kwargs['use_coral_cover'] = False
+        if 'export_coral_cover' not in kwargs.keys():
+            kwargs['export_coral_cover'] = False
+
+        if 'eez_filter' not in kwargs.keys():
+            kwargs['eez_filter'] = False
+
+        if 'grp_filter' not in kwargs.keys():
+            kwargs['grp_filter'] = False
 
         # Import EEZ/Group grids if necessary
-        if 'eez' in kwargs.keys():
-            eez_filter = True
+        if kwargs['eez_filter'] or kwargs['export_eez']:
             if 'eez_varname' not in kwargs.keys():
                 raise KeyError('Please give the EEZ variable name if you want to filter by EEZ')
             with Dataset(self.fh['grid'], mode='r') as nc:
@@ -205,8 +207,7 @@ class experiment():
             else:
                 raise NotImplementedError('C-grids have not been implemented yet!')
 
-        if 'grp' in kwargs.keys():
-            grp_filter = True
+        if kwargs['grp_filter'] or kwargs['export_grp']:
             if 'grp_varname' not in kwargs.keys():
                 raise KeyError('Please give the group variable name if you want to filter by group')
             with Dataset(self.fh['grid'], mode='r') as nc:
@@ -232,10 +233,10 @@ class experiment():
 
         # Build a mask of valid locations
         coral_mask = (coral_grid > 0)
-        if eez_filter:
-            coral_mask *= np.isin(eez_grid, kwargs['eez'])
-        if grp_filter:
-            coral_mask *= np.isin(grp_grid, kwargs['grp'])
+        if kwargs['eez_filter']:
+            coral_mask *= np.isin(eez_grid, kwargs['eez_filter'])
+        if kwargs['grp_filter']:
+            coral_mask *= np.isin(grp_grid, kwargs['grp_filter'])
 
         nl = int(np.sum(coral_mask)) # Number of sites identified
 
@@ -266,14 +267,14 @@ class experiment():
         self.particles = {} # Dictionary to hold initial particle properties
         self.particles['lon'] = np.zeros((nl*self.params['pn2'],), dtype=np.float64)
         self.particles['lat'] = np.zeros((nl*self.params['pn2'],), dtype=np.float64)
-        if kwargs['use_coral_cover']:
+        if kwargs['export_coral_cover']:
             if np.max(coral_grid) < np.iinfo(np.int32).max:
                 self.particles['coral_cover'] = np.zeros((nl*self.params['pn2'],),
                                                          dtype=np.int32)
             else:
                 self.particles['coral_cover'] = np.zeros((nl*self.params['pn2'],),
                                                          dtype=np.int64)
-        if kwargs['use_eez']:
+        if kwargs['export_eez']:
             if np.max(eez_grid) < np.iinfo(np.int8).max:
                 self.particles['eez'] = np.zeros((nl*self.params['pn2'],),
                                                  dtype=np.int8)
@@ -281,7 +282,7 @@ class experiment():
                 self.particles['eez'] = np.zeros((nl*self.params['pn2'],),
                                                  dtype=np.int16)
 
-        if kwargs['use_grp']:
+        if kwargs['export_grp']:
             if np.max(grp_grid) < np.iinfo(np.int8).max:
                 self.particles['grp'] = np.zeros((nl*self.params['pn2'],),
                                                  dtype=np.int8)
@@ -316,81 +317,72 @@ class experiment():
                 self.particles['lon'][k*self.params['pn2']:(k+1)*self.params['pn2']] = gx
                 self.particles['lat'][k*self.params['pn2']:(k+1)*self.params['pn2']] = gy
 
-                if kwargs['use_coral_cover']:
+                if kwargs['export_coral_cover']:
                     coral_cover_k = coral_grid[i, j]
                     self.particles['coral_cover'][k*self.params['pn2']:(k+1)*self.params['pn2']] = coral_cover_k
 
-                if kwargs['use_eez']:
+                if kwargs['export_eez']:
                     eez_k = eez_grid[i, j]
                     self.particles['eez'][k*self.params['pn2']:(k+1)*self.params['pn2']] = eez_k
 
-                if kwargs['use_grp']:
+                if kwargs['export_grp']:
                     grp_k = grp_grid[i, j]
                     self.particles['grp'][k*self.params['pn2']:(k+1)*self.params['pn2']] = grp_k
 
         else:
             raise NotImplementedError('C-grids have not been implemented yet!')
 
-        print()
+        kwargs['plot'] = False if 'plot' not in kwargs.keys() else kwargs['plot']
 
+        if kwargs['plot']:
+            # Create a plot of initial particle positions
+            kwargs['plot_colour'] = None if 'plot_colour' not in kwargs.keys() else kwargs['plot_colour']
+            if kwargs['plot_colour'] == 'grp':
+                if kwargs['export_grp']:
+                    colour_series = self.particles['grp']
+                else:
+                    raise Exception('Cannot plot by group if group is not exported ')
+            elif kwargs['plot_colour'] == 'eez':
+                if kwargs['export_eez']:
+                    colour_series = self.particles['eez']
+                else:
+                    raise Exception('Cannot plot by group if EEZ is not exported ')
+            else:
+                colour_series = 'k'
 
+            plot_x_range = np.max(self.particles['lon']) - np.min(self.particles['lon'])
+            plot_y_range = np.max(self.particles['lat']) - np.min(self.particles['lat'])
+            plot_x_range = [np.min(self.particles['lon']) - 0.1*plot_x_range,
+                            np.max(self.particles['lon']) + 0.1*plot_x_range]
+            plot_y_range = [np.min(self.particles['lat']) - 0.1*plot_y_range,
+                            np.max(self.particles['lat']) + 0.1*plot_y_range]
+            aspect = (plot_y_range[1] - plot_y_range[0])/(plot_x_range[1] - plot_x_range[0])
 
-# # For cell psi[i, j], the surrounding rho cells are:
-# # rho[i, j]     (SW)
-# # rho[i, j+1]   (SE)
-# # rho[i+1, j]   (NW)
-# # rho[i+1, j+1] (NE)
+            f, ax = plt.subplots(1, 1, figsize=(20, 20*aspect), subplot_kw={'projection': ccrs.PlateCarree()})
+            cmap = 'prism'
 
-# # For each psi cell of interest, we are now going to:
-# # 1. Find the coordinates of the surrounding rho points
-# # 2. Find the land mask at those surrounding rho points
-# # 3. Calculate the valid part of that psi cell to populate
-# # 4. Calculate the coordinates of the resulting particles
+            ax.set_xlim(plot_x_range)
+            ax.set_ylim(plot_y_range)
+            ax.set_title('Initial positions for particles')
 
-# # Firstly calculate the basic particle grid
-# dX = lon_rho[1] - lon_rho[0]  # Grid spacing
-# dx = dX/pn                    # Particle spacing
-# gx = gy = np.linspace((-dX/2 + dx/2), (dX/2 - dx/2), num=pn)
-# gridx, gridy = [grid.flatten() for grid in np.meshgrid(gx, gy)]
+            ax.scatter(self.particles['lon'], self.particles['lat'], c=colour_series,
+                       cmap=cmap, s=1, transform=ccrs.PlateCarree())
 
-# nl  = idx[0].shape[0]  # Number of locations
+            gl = ax.gridlines(crs=ccrs.PlateCarree(), draw_labels=True,
+                              linewidth=0.8, color='black', linestyle='-', zorder=11)
+            gl.ylocator = mticker.FixedLocator(np.arange(-30, 30, 5))
+            gl.xlocator = mticker.FixedLocator(np.arange(0, 90, 5))
+            gl.xlabels_top = False
+            gl.ylabels_right = False
 
-# lon_out = np.array([], dtype=np.float64)
-# lat_out = np.array([], dtype=np.float64)
-# id_out  = np.array([], dtype=np.int32)
-# iso_out  = np.array([], dtype=np.int16)
+            if 'plot_fh' in kwargs.keys():
+                plot_fh = kwargs['plot_fh']
+            else:
+                warnings.warn('No plotting fh given, saving to script directory')
+                plot_fh = self.root_dir + 'initial_particle_positions.png'
 
-# for loc in range(nl):
-#     loc_yidx = idx[0][loc]
-#     loc_xidx = idx[1][loc]
-
-#     loc_y = lat_psi[loc_yidx]
-#     loc_x = lon_psi[loc_xidx]
-
-#     loc_id   = id_psi[loc_yidx, loc_xidx]
-#     loc_iso  = iso_psi[loc_yidx, loc_xidx]
-
-#     lon_out = np.append(lon_out, gridx + loc_x)
-#     lat_out = np.append(lat_out, gridy + loc_y)
-#     iso_out = np.append(iso_out, np.ones(np.shape(gridx),
-#                                          dtype=np.int16)*loc_iso)
-#     id_out = np.append(id_out, np.ones(np.shape(gridx),
-#                                        dtype=np.int32)*loc_id)
-
-# # Now distribute trajectories across processes
-# # proc_out = np.repeat(np.arange(param['nproc'],
-# #                                dtype=(np.int16 if param['nproc'] > 123 else np.int8)),
-# #                      int(np.ceil(len(id_out)/param['nproc'])))
-# # proc_out = proc_out[:len(id_out)]
-
-
-# pos0 = {'lon': lon_out,
-#         'lat': lat_out,
-#         'iso': iso_out,
-#         'id': id_out}
-
-
-
+            plt.savefig(plot_fh, dpi=300)
+            plt.close()
 
 
 
