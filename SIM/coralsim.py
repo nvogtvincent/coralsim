@@ -91,10 +91,11 @@ class experiment():
                 raise NotImplementedError('C-grids have not been implemented yet!')
             else:
                 # Import A-Grid dimension names
-                if all (key in kwargs['dimensions'].keys() for key in ['lon', 'lat']):
-                    self.params['dimension_names'] = {'rho': kwargs['dimensions']}
-                elif all (key in kwargs['dimensions'].keys() for key in ['rho', 'psi']):
+                if all (key in kwargs['dimensions'].keys() for key in ['rho', 'psi']):
                     self.params['dimension_names'] = kwargs['dimensions']
+                elif all (key in kwargs['dimensions'].keys() for key in ['lon', 'lat']):
+                    raise NotImplementedError('Psi grids must currently be present in grid file')
+                    self.params['dimension_names'] = {'rho': kwargs['dimensions']}
                 else:
                     raise Exception(('Please supply the \'lon\' and \'lat\' '
                                      'dimension names as a dictionary'))
@@ -111,9 +112,8 @@ class experiment():
                 self.axes['rho']['nx'] = len(self.axes['rho']['lon'])
                 self.axes['rho']['ny'] = len(self.axes['rho']['lat'])
 
-                # Now generate the psi grid
-                self.axes['psi']['lon'] = 0.5*(self.axes['rho']['lon'][1:] + self.axes['rho']['lon'][:-1])
-                self.axes['psi']['lat'] = 0.5*(self.axes['rho']['lat'][1:] + self.axes['rho']['lat'][:-1])
+                self.axes['psi']['lon'] = np.array(nc.variables[self.params['dimension_names']['psi']['lon']][:])
+                self.axes['psi']['lat'] = np.array(nc.variables[self.params['dimension_names']['psi']['lat']][:])
                 self.axes['psi']['nx'] = len(self.axes['psi']['lon'])
                 self.axes['psi']['ny'] = len(self.axes['psi']['lat'])
 
