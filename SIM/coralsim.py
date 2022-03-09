@@ -567,7 +567,7 @@ class experiment():
                                to_write=True)
 
                 ##########################################################################
-                # TEMPORARY VARIABLES FOR TRACKING BEACHING AT SPECIFIED SINK SITES ######
+                # TEMPORARY VARIABLES FOR TRACKING BEACHING AT SPECIFIED REEF SITES ######
                 ##########################################################################
 
                 # Current reef time (memory of time in CURRENT reef group - in time-steps)
@@ -611,32 +611,32 @@ class experiment():
                 g0 = Variable('g0', dtype=np.uint8, initial=0, to_write=True)
                 t0 = Variable('t0', dtype=np.uint16, initial=0, to_write=True)
                 s0 = Variable('t0', dtype=np.uint16, initial=0, to_write=True)
-                p0 = Variable('p0', dtype=np.float16, initial=0., to_write=True)
-                f0 = Variable('f0', dtype=np.float16, initial=0., to_write=True)
+                p0 = Variable('p0', dtype=np.float32, initial=0., to_write=True)
+                f0 = Variable('f0', dtype=np.float32, initial=0., to_write=True)
 
                 g1 = Variable('g1', dtype=np.uint8, initial=0, to_write=True)
                 t1 = Variable('t1', dtype=np.uint16, initial=0, to_write=True)
                 s1 = Variable('t1', dtype=np.uint16, initial=0, to_write=True)
-                p1 = Variable('p1', dtype=np.float16, initial=0., to_write=True)
-                f1 = Variable('f1', dtype=np.float16, initial=0., to_write=True)
+                p1 = Variable('p1', dtype=np.float32, initial=0., to_write=True)
+                f1 = Variable('f1', dtype=np.float32, initial=0., to_write=True)
 
                 g2 = Variable('g2', dtype=np.uint8, initial=0, to_write=True)
                 t2 = Variable('t2', dtype=np.uint16, initial=0, to_write=True)
                 s2 = Variable('t2', dtype=np.uint16, initial=0, to_write=True)
-                p2 = Variable('p2', dtype=np.float16, initial=0., to_write=True)
-                f2 = Variable('f2', dtype=np.float16, initial=0., to_write=True)
+                p2 = Variable('p2', dtype=np.float32, initial=0., to_write=True)
+                f2 = Variable('f2', dtype=np.float32, initial=0., to_write=True)
 
                 g3 = Variable('g3', dtype=np.uint8, initial=0, to_write=True)
                 t3 = Variable('t3', dtype=np.uint16, initial=0, to_write=True)
                 s3 = Variable('t3', dtype=np.uint16, initial=0, to_write=True)
-                p3 = Variable('p3', dtype=np.float16, initial=0., to_write=True)
-                f3 = Variable('f3', dtype=np.float16, initial=0., to_write=True)
+                p3 = Variable('p3', dtype=np.float32, initial=0., to_write=True)
+                f3 = Variable('f3', dtype=np.float32, initial=0., to_write=True)
 
                 g4 = Variable('g4', dtype=np.uint8, initial=0, to_write=True)
                 t4 = Variable('t4', dtype=np.uint16, initial=0, to_write=True)
                 s4 = Variable('t4', dtype=np.uint16, initial=0, to_write=True)
-                p4 = Variable('p4', dtype=np.float16, initial=0., to_write=True)
-                f4 = Variable('f4', dtype=np.float16, initial=0., to_write=True)
+                p4 = Variable('p4', dtype=np.float32, initial=0., to_write=True)
+                f4 = Variable('f4', dtype=np.float32, initial=0., to_write=True)
 
         else:
             class larva(JITParticle):
@@ -695,7 +695,7 @@ class experiment():
                                to_write=True)
 
                 ##########################################################################
-                # TEMPORARY VARIABLES FOR TRACKING BEACHING AT SPECIFIED SINK SITES ######
+                # TEMPORARY VARIABLES FOR TRACKING BEACHING AT SPECIFIED REEF SITES ######
                 ##########################################################################
 
                 # Current reef time (memory of time in CURRENT reef group - in time-steps)
@@ -738,33 +738,33 @@ class experiment():
                 # Event variables (g = group, t = time in group, s = t0, p = phi0, f = phi of group)
                 g0 = Variable('g0', dtype=np.uint8, initial=0, to_write=True)
                 t0 = Variable('t0', dtype=np.uint16, initial=0, to_write=True)
-                s0 = Variable('t0', dtype=np.uint16, initial=0, to_write=True)
-                p0 = Variable('p0', dtype=np.float16, initial=0., to_write=True)
-                f0 = Variable('f0', dtype=np.float16, initial=0., to_write=True)
+                s0 = Variable('s0', dtype=np.uint16, initial=0, to_write=True)
+                p0 = Variable('p0', dtype=np.float32, initial=0., to_write=True)
+                f0 = Variable('f0', dtype=np.float32, initial=0., to_write=True)
 
                 g1 = Variable('g1', dtype=np.uint8, initial=0, to_write=True)
                 t1 = Variable('t1', dtype=np.uint16, initial=0, to_write=True)
-                s1 = Variable('t1', dtype=np.uint16, initial=0, to_write=True)
-                p1 = Variable('p1', dtype=np.float16, initial=0., to_write=True)
-                f1 = Variable('f1', dtype=np.float16, initial=0., to_write=True)
+                s1 = Variable('s1', dtype=np.uint16, initial=0, to_write=True)
+                p1 = Variable('p1', dtype=np.float32, initial=0., to_write=True)
+                f1 = Variable('f1', dtype=np.float32, initial=0., to_write=True)
 
                 g2 = Variable('g2', dtype=np.uint8, initial=0, to_write=True)
                 t2 = Variable('t2', dtype=np.uint16, initial=0, to_write=True)
-                s2 = Variable('t2', dtype=np.uint16, initial=0, to_write=True)
-                p2 = Variable('p2', dtype=np.float16, initial=0., to_write=True)
-                f2 = Variable('f2', dtype=np.float16, initial=0., to_write=True)
+                s2 = Variable('s2', dtype=np.uint16, initial=0, to_write=True)
+                p2 = Variable('p2', dtype=np.float32, initial=0., to_write=True)
+                f2 = Variable('f2', dtype=np.float32, initial=0., to_write=True)
 
                 g3 = Variable('g3', dtype=np.uint8, initial=0, to_write=True)
                 t3 = Variable('t3', dtype=np.uint16, initial=0, to_write=True)
-                s3 = Variable('t3', dtype=np.uint16, initial=0, to_write=True)
-                p3 = Variable('p3', dtype=np.float16, initial=0., to_write=True)
-                f3 = Variable('f3', dtype=np.float16, initial=0., to_write=True)
+                s3 = Variable('s3', dtype=np.uint16, initial=0, to_write=True)
+                p3 = Variable('p3', dtype=np.float32, initial=0., to_write=True)
+                f3 = Variable('f3', dtype=np.float32, initial=0., to_write=True)
 
                 g4 = Variable('g4', dtype=np.uint8, initial=0, to_write=True)
                 t4 = Variable('t4', dtype=np.uint16, initial=0, to_write=True)
-                s4 = Variable('t4', dtype=np.uint16, initial=0, to_write=True)
-                p4 = Variable('p4', dtype=np.float16, initial=0., to_write=True)
-                f4 = Variable('f4', dtype=np.float16, initial=0., to_write=True)
+                s4 = Variable('s4', dtype=np.uint16, initial=0, to_write=True)
+                p4 = Variable('p4', dtype=np.float32, initial=0., to_write=True)
+                f4 = Variable('f4', dtype=np.float32, initial=0., to_write=True)
 
                 larval_loss0 = Variable('larval_loss0', dtype=np.float32, initial=0., to_write=True)
                 larval_loss1 = Variable('larval_loss1', dtype=np.float32, initial=0., to_write=True)
@@ -922,14 +922,14 @@ class experiment():
                         particle.p4 = particle.current_reef_phi0
                         particle.f4 = particle.current_reef_phi
 
-                        particle.delete() # Delete particle, since no more sinks can be saved
+                        particle.delete() # Delete particle, since no more reefs can be saved
 
                     # Then reset current values to zero
                     particle.current_reef_grp = 0
                     particle.current_reef_time = 0
                     particle.current_reef_t0 = 0
                     particle.current_reef_phi0 = 0
-                    particle.current_reef_frac = 0
+                    particle.current_reef_phi = 0
 
                     # Add to event number counter
                     particle.e_num += 1
@@ -948,8 +948,8 @@ class experiment():
                     # Phi at current reef
                     particle.current_reef_phi += particle.rf*particle.dt
 
-                    # ID of current sink
-                    particle.current_sink_grp = particle.grp
+                    # Current reef group
+                    particle.current_reef_grp = particle.grp
 
                 # Finally, check if particle needs to be deleted
                 if particle.ot >= fieldset.max_age:
@@ -1054,14 +1054,14 @@ class experiment():
                         particle.f4 = particle.current_reef_phi
                         particle.larval_loss4 = particle.current_reef_larval_number0 - particle.larval_number
 
-                        particle.delete() # Delete particle, since no more sinks can be saved
+                        particle.delete() # Delete particle, since no more reefs can be saved
 
                     # Then reset current values to zero
                     particle.current_reef_grp = 0
                     particle.current_reef_time = 0
                     particle.current_reef_t0 = 0
                     particle.current_reef_phi0 = 0
-                    particle.current_reef_frac = 0
+                    particle.current_reef_phi = 0
 
                     # Add to event number counter
                     particle.e_num += 1
@@ -1080,10 +1080,10 @@ class experiment():
                     # Phi at current reef
                     particle.current_reef_phi += particle.rf*particle.dt
 
-                    # ID of current sink
-                    particle.current_sink_grp = particle.grp
+                    # Current reef group
+                    particle.current_reef_grp = particle.grp
 
-                    # Larval number at start of current sink
+                    # Larval number at start of current group
                     particle.current_reef_larval_number0 = particle.larval_number
 
                     particle.larval_number = particle.larval_number - (particle.larval_number)*(lm + (ls*particle.rf))*(particle.dt)
