@@ -492,6 +492,306 @@ class experiment():
         else:
             raise NotImplementedError('C-grids have not been implemented yet!')
 
+    def create_particleset(self, **kwargs):
+        """
+        Parameters (* are required)
+        ----------
+        kwargs :
+            test: Whether to run the testing kernels (bool)
+            fh*: File handle for output netcdf
+
+        """
+
+        if 'test' not in kwargs:
+            kwargs['test'] = False
+
+        if 'fh' not in kwargs:
+            raise KeyError('Filehandle required for output')
+        else:
+            self.fh['traj'] = kwargs['fh']
+
+        if not kwargs['test']:
+            class larva(JITParticle):
+
+                ###################################################################
+                # TEMPORARY VARIABLES FOR TRACKING PARTICLE POSITION/STATUS       #
+                ###################################################################
+
+                # Group of current cell (>0 if in any reef cell)
+                grp = Variable('grp',
+                               dtype=np.int8,
+                               initial=0,
+                               to_write=False)
+
+                # Reef fraction of current cell (>0 if in any reef cell)
+                rf = Variable('rf',
+                              dtype=np.float32,
+                              initial=0,
+                              to_write=False)
+
+                # Time at sea (Total time since spawning)
+                ot  = Variable('ot',
+                               dtype=np.int32,
+                               initial=0,
+                               to_write=False)
+
+                # Phi (int_0^t F(tau) dtau, where F(tau) is the coral cell fraction
+                #      at time tau)
+                phi = Variable('phi',
+                               dtype=np.float32,
+                               initial=0,
+                               to_write=False)
+
+                ##########################################################################
+                # PROVENANCE IDENTIFIERS #################################################
+                ##########################################################################
+
+                # Group of parent reef
+                grp0 = Variable('grp0',
+                                dtype=np.int8,
+                                to_write=True)
+
+                # Original longitude
+                lon0 = Variable('lon0',
+                                dtype=np.float32,
+                                to_write=True)
+
+                # Original latitude
+                lat0 = Variable('lat0',
+                                dtype=np.float32,
+                                to_write=True)
+
+                # Reef area of parent reef
+                ra0 = Variable('ra0',
+                               dtype=np.int32,
+                               to_write=True)
+
+                ##########################################################################
+                # TEMPORARY VARIABLES FOR TRACKING BEACHING AT SPECIFIED SINK SITES ######
+                ##########################################################################
+
+                # Current reef time (memory of time in CURRENT reef group - in time-steps)
+                current_reef_time = Variable('current_reef_time',
+                                             dtype=np.uint16,
+                                             initial=0,
+                                             to_write=False)
+
+                # Current reef t0 (memory of time when the CURRENT reef group was reached - in time-steps)
+                current_reef_t0 = Variable('current_reef_t0',
+                                           dtype=np.uint16,
+                                           initial=0,
+                                           to_write=False)
+
+                # Current reef Phi (memory of accumulatd phi inthe CURRENT reef group)
+                current_reef_phi = Variable('current_reef_phi',
+                                             dtype=np.float32,
+                                             initial=0.,
+                                             to_write=False)
+
+                # Current reef phi0 (memory of phi when the CURRENT reef group was reached)
+                current_reef_phi0 = Variable('current_reef_phi0',
+                                             dtype=np.float32,
+                                             initial=0.,
+                                             to_write=False)
+
+                # Current reef group (memory of the CURRENT reef group)
+                current_reef_grp = Variable('current_reef_grp',
+                                            dtype=np.uint8,
+                                            initial=0.,
+                                            to_write=False)
+
+                ##########################################################################
+                # RECORD OF ALL EVENTS ###################################################
+                ##########################################################################
+
+                # Number of events
+                e_num = Variable('e_num', dtype=np.int16, initial=0, to_write=True)
+
+                # Event variables (g = group, t = time in group, s = t0, p = phi0, f = phi of group)
+                g0 = Variable('g0', dtype=np.uint8, initial=0, to_write=True)
+                t0 = Variable('t0', dtype=np.uint16, initial=0, to_write=True)
+                s0 = Variable('t0', dtype=np.uint16, initial=0, to_write=True)
+                p0 = Variable('p0', dtype=np.float16, initial=0., to_write=True)
+                f0 = Variable('f0', dtype=np.float16, initial=0., to_write=True)
+
+                g1 = Variable('g1', dtype=np.uint8, initial=0, to_write=True)
+                t1 = Variable('t1', dtype=np.uint16, initial=0, to_write=True)
+                s1 = Variable('t1', dtype=np.uint16, initial=0, to_write=True)
+                p1 = Variable('p1', dtype=np.float16, initial=0., to_write=True)
+                f1 = Variable('f1', dtype=np.float16, initial=0., to_write=True)
+
+                g2 = Variable('g2', dtype=np.uint8, initial=0, to_write=True)
+                t2 = Variable('t2', dtype=np.uint16, initial=0, to_write=True)
+                s2 = Variable('t2', dtype=np.uint16, initial=0, to_write=True)
+                p2 = Variable('p2', dtype=np.float16, initial=0., to_write=True)
+                f2 = Variable('f2', dtype=np.float16, initial=0., to_write=True)
+
+                g3 = Variable('g3', dtype=np.uint8, initial=0, to_write=True)
+                t3 = Variable('t3', dtype=np.uint16, initial=0, to_write=True)
+                s3 = Variable('t3', dtype=np.uint16, initial=0, to_write=True)
+                p3 = Variable('p3', dtype=np.float16, initial=0., to_write=True)
+                f3 = Variable('f3', dtype=np.float16, initial=0., to_write=True)
+
+                g4 = Variable('g4', dtype=np.uint8, initial=0, to_write=True)
+                t4 = Variable('t4', dtype=np.uint16, initial=0, to_write=True)
+                s4 = Variable('t4', dtype=np.uint16, initial=0, to_write=True)
+                p4 = Variable('p4', dtype=np.float16, initial=0., to_write=True)
+                f4 = Variable('f4', dtype=np.float16, initial=0., to_write=True)
+
+        else:
+            class larva(JITParticle):
+
+                ###################################################################
+                # TEMPORARY VARIABLES FOR TRACKING PARTICLE POSITION/STATUS       #
+                ###################################################################
+
+                # Group of current cell (>0 if in any reef cell)
+                grp = Variable('grp',
+                               dtype=np.int8,
+                               initial=0,
+                               to_write=False)
+
+                # Reef fraction of current cell (>0 if in any reef cell)
+                rf = Variable('rf',
+                              dtype=np.float32,
+                              initial=0,
+                              to_write=False)
+
+                # Time at sea (Total time since spawning)
+                ot  = Variable('ot',
+                               dtype=np.int32,
+                               initial=0,
+                               to_write=False)
+
+                # Phi (int_0^t F(tau) dtau, where F(tau) is the coral cell fraction
+                #      at time tau)
+                phi = Variable('phi',
+                               dtype=np.float32,
+                               initial=0,
+                               to_write=False)
+
+                ##########################################################################
+                # PROVENANCE IDENTIFIERS #################################################
+                ##########################################################################
+
+                # Group of parent reef
+                grp0 = Variable('grp0',
+                                dtype=np.int8,
+                                to_write=True)
+
+                # Original longitude
+                lon0 = Variable('lon0',
+                                dtype=np.float32,
+                                to_write=True)
+
+                # Original latitude
+                lat0 = Variable('lat0',
+                                dtype=np.float32,
+                                to_write=True)
+
+                # Reef area of parent reef
+                ra0 = Variable('ra0',
+                               dtype=np.int32,
+                               to_write=True)
+
+                ##########################################################################
+                # TEMPORARY VARIABLES FOR TRACKING BEACHING AT SPECIFIED SINK SITES ######
+                ##########################################################################
+
+                # Current reef time (memory of time in CURRENT reef group - in time-steps)
+                current_reef_time = Variable('current_reef_time',
+                                             dtype=np.uint16,
+                                             initial=0,
+                                             to_write=False)
+
+                # Current reef t0 (memory of time when the CURRENT reef group was reached - in time-steps)
+                current_reef_t0 = Variable('current_reef_t0',
+                                           dtype=np.uint16,
+                                           initial=0,
+                                           to_write=False)
+
+                # Current reef Phi (memory of accumulatd phi inthe CURRENT reef group)
+                current_reef_phi = Variable('current_reef_phi',
+                                             dtype=np.float32,
+                                             initial=0.,
+                                             to_write=False)
+
+                # Current reef phi0 (memory of phi when the CURRENT reef group was reached)
+                current_reef_phi0 = Variable('current_reef_phi0',
+                                             dtype=np.float32,
+                                             initial=0.,
+                                             to_write=False)
+
+                # Current reef group (memory of the CURRENT reef group)
+                current_reef_grp = Variable('current_reef_grp',
+                                            dtype=np.uint8,
+                                            initial=0.,
+                                            to_write=False)
+
+                ##########################################################################
+                # RECORD OF ALL EVENTS ###################################################
+                ##########################################################################
+
+                # Number of events
+                e_num = Variable('e_num', dtype=np.int16, initial=0, to_write=True)
+
+                # Event variables (g = group, t = time in group, s = t0, p = phi0, f = phi of group)
+                g0 = Variable('g0', dtype=np.uint8, initial=0, to_write=True)
+                t0 = Variable('t0', dtype=np.uint16, initial=0, to_write=True)
+                s0 = Variable('t0', dtype=np.uint16, initial=0, to_write=True)
+                p0 = Variable('p0', dtype=np.float16, initial=0., to_write=True)
+                f0 = Variable('f0', dtype=np.float16, initial=0., to_write=True)
+
+                g1 = Variable('g1', dtype=np.uint8, initial=0, to_write=True)
+                t1 = Variable('t1', dtype=np.uint16, initial=0, to_write=True)
+                s1 = Variable('t1', dtype=np.uint16, initial=0, to_write=True)
+                p1 = Variable('p1', dtype=np.float16, initial=0., to_write=True)
+                f1 = Variable('f1', dtype=np.float16, initial=0., to_write=True)
+
+                g2 = Variable('g2', dtype=np.uint8, initial=0, to_write=True)
+                t2 = Variable('t2', dtype=np.uint16, initial=0, to_write=True)
+                s2 = Variable('t2', dtype=np.uint16, initial=0, to_write=True)
+                p2 = Variable('p2', dtype=np.float16, initial=0., to_write=True)
+                f2 = Variable('f2', dtype=np.float16, initial=0., to_write=True)
+
+                g3 = Variable('g3', dtype=np.uint8, initial=0, to_write=True)
+                t3 = Variable('t3', dtype=np.uint16, initial=0, to_write=True)
+                s3 = Variable('t3', dtype=np.uint16, initial=0, to_write=True)
+                p3 = Variable('p3', dtype=np.float16, initial=0., to_write=True)
+                f3 = Variable('f3', dtype=np.float16, initial=0., to_write=True)
+
+                g4 = Variable('g4', dtype=np.uint8, initial=0, to_write=True)
+                t4 = Variable('t4', dtype=np.uint16, initial=0, to_write=True)
+                s4 = Variable('t4', dtype=np.uint16, initial=0, to_write=True)
+                p4 = Variable('p4', dtype=np.float16, initial=0., to_write=True)
+                f4 = Variable('f4', dtype=np.float16, initial=0., to_write=True)
+
+                larval_loss0 = Variable('larval_loss0', dtype=np.float32, initial=0., to_write=True)
+                larval_loss1 = Variable('larval_loss1', dtype=np.float32, initial=0., to_write=True)
+                larval_loss2 = Variable('larval_loss2', dtype=np.float32, initial=0., to_write=True)
+                larval_loss3 = Variable('larval_loss3', dtype=np.float32, initial=0., to_write=True)
+                larval_loss4 = Variable('larval_loss4', dtype=np.float32, initial=0., to_write=True)
+
+                larval_number = Variable('larval_number', dtype=np.float32, initial=0., to_write=False)
+                current_reef_larval_number0 = Variable('current_reef_larval_number0', dtype=np.float32, initial=0., to_write=False)
+
+        self.pset = ParticleSet.from_list(fieldset=self.fieldset,
+                                          pclass=larva,
+                                          lonlatdepth_dtype=np.float64,
+                                          lon=self.particles['lon'],
+                                          lat=self.particles['lat'],
+                                          time=self.particles['release_time'],
+                                          lon0=self.particles['lon'],
+                                          lat0=self.particles['lat'],
+                                          grp0=self.particles['grp'],
+                                          ra0=self.particles['coral_cover'])
+
+        if not kwargs['test']:
+            self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], write_ondelete=True)
+        else:
+            self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], outputdt=timedelta(hours=1))
+
+
     def create_kernels(self, **kwargs):
         """
         Parameters (* are required)
@@ -501,11 +801,14 @@ class experiment():
             diffusion: Either False for no diffusion, or the horizontal diffusivity (m^2/s)
             dt*: Parcels RK4 timestep (timedelta)
             run_time*: Total runtime (timedelta)
+            test: Whether to run the testing kernels (bool)
 
         """
 
         if 'competency_period' in kwargs:
             self.params['competency_period'] = kwargs['competency_period'].total_seconds()
+            if self.params['competency_period'] > 0:
+                raise NotImplementedError('Competency not yet implemented')
         else:
             warnings.warn('No competency period set')
             self.params['competency_period'] = 0
@@ -520,268 +823,309 @@ class experiment():
         if not all (key in kwargs.keys() for key in ['dt', 'run_time']):
             raise KeyError('Must supply Parcels RK4 timestep and run time for kernel creation')
 
+        if 'test' not in kwargs:
+            kwargs['test'] = False
+
         assert kwargs['run_time'].total_seconds()/kwargs['dt'].total_seconds() < np.iinfo(np.uint16).max
 
         self.fieldset.add_constant('max_age', kwargs['run_time'].total_seconds() - kwargs['dt'].total_seconds())
+        self.params['run_time'] = kwargs['run_time']
+        self.params['dt'] = kwargs['dt']
 
         # Create Particle Class
-        class larva(JITParticle):
+        if not kwargs['test']:
+            # Controller for managing particle events
+            def event(particle, fieldset, time):
 
-            ###################################################################
-            # TEMPORARY VARIABLES FOR TRACKING PARTICLE POSITION/STATUS       #
-            ###################################################################
+                # 1 Keep track of the amount of time spent at sea
+                particle.ot += particle.dt
 
-            # Group of current cell (>0 if in any reef cell)
-            grp = Variable('grp',
-                           dtype=np.int8,
-                           initial=0,
-                           to_write=False)
+                # 2 Assess reef status
+                particle.grp = fieldset.coral_grp_c[particle]
 
-            # Reef fraction of current cell (>0 if in any reef cell)
-            rf = Variable('rf',
-                          dtype=np.float32,
-                          initial=0,
-                          to_write=False)
+                save_event = False
+                new_event = False
 
-            # Time at sea (Total time since spawning)
-            ot  = Variable('ot',
-                           dtype=np.int32,
-                           initial=0,
-                           to_write=False)
+                # 3 Trigger event cascade if larva is in a reef site
+                if particle.grp > 0:
 
-            # Phi (int_0^t F(tau) dtau, where F(tau) is the coral cell fraction
-            #      at time tau)
-            phi = Variable('phi',
-                           dtype=np.float32,
-                           initial=0,
-                           to_write=False)
+                    particle.rf = fieldset.coral_frac_c[particle]
 
-            ##########################################################################
-            # PROVENANCE IDENTIFIERS #################################################
-            ##########################################################################
+                    # Check if an event has already been triggered
+                    if particle.current_reef_time > 0:
 
-            # Group of parent reef
-            grp0 = Variable('grp0',
-                            dtype=np.int8,
-                            to_write=True)
+                        # Check if we are in the same reef group as the current event
+                        if particle.grp == particle.current_reef_grp:
 
-            # Original longitude
-            lon0 = Variable('lon0',
-                            dtype=np.float32,
-                            to_write=True)
+                            # If contiguous event, just add time and phi
+                            particle.current_reef_time += 1
+                            particle.phi += particle.rf*particle.dt
 
-            # Original latitude
-            lat0 = Variable('lat0',
-                            dtype=np.float32,
-                            to_write=True)
+                            # But also check that the particle isn't about to expire (save if so)
+                            # Otherwise particles hanging around reefs at the end of the simulation
+                            # won't get saved.
 
-            # Reef area of parent reef
-            ra0 = Variable('ra0',
-                           dtype=np.int32,
-                           to_write=True)
+                            if particle.ot > fieldset.max_age:
+                                save_event = True
 
-            ##########################################################################
-            # TEMPORARY VARIABLES FOR TRACKING BEACHING AT SPECIFIED SINK SITES ######
-            ##########################################################################
+                        else:
 
-            # Current reef time (memory of time in CURRENT reef group - in time-steps)
-            current_reef_time = Variable('current_reef_time',
-                                         dtype=np.uint16,
-                                         initial=0,
-                                         to_write=False)
-
-            # Current reef t0 (memory of time when the CURRENT reef group was reached - in time-steps)
-            current_reef_t0 = Variable('current_reef_t0',
-                                       dtype=np.uint16,
-                                       initial=0,
-                                       to_write=False)
-
-            # Current reef Phi (memory of accumulatd phi inthe CURRENT reef group)
-            current_reef_phi = Variable('current_reef_phi',
-                                         dtype=np.float32,
-                                         initial=0.,
-                                         to_write=False)
-
-            # Current reef phi0 (memory of phi when the CURRENT reef group was reached)
-            current_reef_phi0 = Variable('current_reef_phi0',
-                                         dtype=np.float32,
-                                         initial=0.,
-                                         to_write=False)
-
-            # Current reef group (memory of the CURRENT reef group)
-            current_reef_grp = Variable('current_reef_grp',
-                                        dtype=np.uint8,
-                                        initial=0.,
-                                        to_write=False)
-
-            ##########################################################################
-            # RECORD OF ALL EVENTS ###################################################
-            ##########################################################################
-
-            # Number of events
-            e_num = Variable('e_num', dtype=np.int16, initial=0, to_write=True)
-
-            # Event variables (g = group, t = time in group, s = t0, p = phi0, f = phi of group)
-            g0 = Variable('g0', dtype=np.uint8, initial=0, to_write=True)
-            t0 = Variable('t0', dtype=np.uint16, initial=0, to_write=True)
-            s0 = Variable('t0', dtype=np.uint16, initial=0, to_write=True)
-            p0 = Variable('p0', dtype=np.float16, initial=0., to_write=True)
-            f0 = Variable('f0', dtype=np.float16, initial=0., to_write=True)
-
-            g1 = Variable('g1', dtype=np.uint8, initial=0, to_write=True)
-            t1 = Variable('t1', dtype=np.uint16, initial=0, to_write=True)
-            s1 = Variable('t1', dtype=np.uint16, initial=0, to_write=True)
-            p1 = Variable('p1', dtype=np.float16, initial=0., to_write=True)
-            f1 = Variable('f1', dtype=np.float16, initial=0., to_write=True)
-
-            g2 = Variable('g2', dtype=np.uint8, initial=0, to_write=True)
-            t2 = Variable('t2', dtype=np.uint16, initial=0, to_write=True)
-            s2 = Variable('t2', dtype=np.uint16, initial=0, to_write=True)
-            p2 = Variable('p2', dtype=np.float16, initial=0., to_write=True)
-            f2 = Variable('f2', dtype=np.float16, initial=0., to_write=True)
-
-            g3 = Variable('g3', dtype=np.uint8, initial=0, to_write=True)
-            t3 = Variable('t3', dtype=np.uint16, initial=0, to_write=True)
-            s3 = Variable('t3', dtype=np.uint16, initial=0, to_write=True)
-            p3 = Variable('p3', dtype=np.float16, initial=0., to_write=True)
-            f3 = Variable('f3', dtype=np.float16, initial=0., to_write=True)
-
-            g4 = Variable('g4', dtype=np.uint8, initial=0, to_write=True)
-            t4 = Variable('t4', dtype=np.uint16, initial=0, to_write=True)
-            s4 = Variable('t4', dtype=np.uint16, initial=0, to_write=True)
-            p4 = Variable('p4', dtype=np.float16, initial=0., to_write=True)
-            f4 = Variable('f4', dtype=np.float16, initial=0., to_write=True)
-
-            ISO <> grp
-            sink <> grp
-
-        ##############################################################################
-        # KERNELS ####################################################################
-        ##############################################################################
-
-        # Controller for managing particle events
-        def event(particle, fieldset, time):
-
-            # 1 Keep track of the amount of time spent at sea
-            particle.ot += particle.dt
-
-            # 2 Assess reef status
-            particle.grp = fieldset.coral_grp_c[particle]
-
-            save_event = False
-            new_event = False
-
-            # 3 Trigger event cascade if larva is in a reef site
-            if particle.grp > 0:
-
-                particle.rf = fieldset.coral_frac_c[particle]
-
-                # Check if an event has already been triggered
-                if particle.current_reef_time > 0:
-
-                    # Check if we are in the same reef group as the current event
-                    if particle.grp == particle.current_reef_grp:
-
-                        # If contiguous event, just add time and phi
-                        particle.current_reef_time += 1
-                        particle.phi += particle.rf*particle.dt
-
-                        # But also check that the particle isn't about to expire (save if so)
-                        # Otherwise particles hanging around reefs at the end of the simulation
-                        # won't get saved.
-
-                        if particle.ot > fieldset.max_age:
+                            # Otherwise, we need to save the old event and create a new event
                             save_event = True
+                            new_event = True
 
                     else:
 
-                        # Otherwise, we need to save the old event and create a new event
-                        save_event = True
+                        # If event has not been triggered, create a new event
                         new_event = True
 
                 else:
 
-                    # If event has not been triggered, create a new event
-                    new_event = True
+                    # Otherwise, check if ongoing event has just ended
+                    if particle.current_reef_time > 0:
 
-            else:
+                        save_event = True
 
-                # Otherwise, check if ongoing event has just ended
-                if particle.current_reef_time > 0:
+                if save_event:
+                    # Save current values
+                    # Unfortunately, due to the limited functions allowed in parcels, this
+                    # required an horrendous if-else chain
 
-                    save_event = True
+                    if particle.e_num == 0:
+                        particle.g0 = particle.current_reef_grp
+                        particle.t0 = particle.current_reef_time
+                        particle.s0 = particle.current_reef_t0
+                        particle.p0 = particle.current_reef_phi0
+                        particle.f0 = particle.current_reef_phi
+                    elif particle.e_num == 1:
+                        particle.g1 = particle.current_reef_grp
+                        particle.t1 = particle.current_reef_time
+                        particle.s1 = particle.current_reef_t0
+                        particle.p1 = particle.current_reef_phi0
+                        particle.f1 = particle.current_reef_phi
+                    elif particle.e_num == 2:
+                        particle.g2 = particle.current_reef_grp
+                        particle.t2 = particle.current_reef_time
+                        particle.s2 = particle.current_reef_t0
+                        particle.p2 = particle.current_reef_phi0
+                        particle.f2 = particle.current_reef_phi
+                    elif particle.e_num == 3:
+                        particle.g3 = particle.current_reef_grp
+                        particle.t3 = particle.current_reef_time
+                        particle.s3 = particle.current_reef_t0
+                        particle.p3 = particle.current_reef_phi0
+                        particle.f3 = particle.current_reef_phi
+                    elif particle.e_num == 4:
+                        particle.g4 = particle.current_reef_grp
+                        particle.t4 = particle.current_reef_time
+                        particle.s4 = particle.current_reef_t0
+                        particle.p4 = particle.current_reef_phi0
+                        particle.f4 = particle.current_reef_phi
 
-            if save_event:
-                # Save current values
-                # Unfortunately, due to the limited functions allowed in parcels, this
-                # required an horrendous if-else chain
+                        particle.delete() # Delete particle, since no more sinks can be saved
 
-                if particle.e_num == 0:
-                    particle.g0 = particle.current_reef_grp
-                    particle.t0 = particle.current_reef_time
-                    particle.s0 = particle.current_reef_t0
-                    particle.p0 = particle.current_reef_phi0
-                    particle.f0 = particle.current_reef_phi
-                elif particle.e_num == 1:
-                    particle.g1 = particle.current_reef_grp
-                    particle.t1 = particle.current_reef_time
-                    particle.s1 = particle.current_reef_t0
-                    particle.p1 = particle.current_reef_phi0
-                    particle.f1 = particle.current_reef_phi
-                elif particle.e_num == 2:
-                    particle.g2 = particle.current_reef_grp
-                    particle.t2 = particle.current_reef_time
-                    particle.s2 = particle.current_reef_t0
-                    particle.p2 = particle.current_reef_phi0
-                    particle.f2 = particle.current_reef_phi
-                elif particle.e_num == 3:
-                    particle.g3 = particle.current_reef_grp
-                    particle.t3 = particle.current_reef_time
-                    particle.s3 = particle.current_reef_t0
-                    particle.p3 = particle.current_reef_phi0
-                    particle.f3 = particle.current_reef_phi
-                elif particle.e_num == 4:
-                    particle.g4 = particle.current_reef_grp
-                    particle.t4 = particle.current_reef_time
-                    particle.s4 = particle.current_reef_t0
-                    particle.p4 = particle.current_reef_phi0
-                    particle.f4 = particle.current_reef_phi
+                    # Then reset current values to zero
+                    particle.current_reef_grp = 0
+                    particle.current_reef_time = 0
+                    particle.current_reef_t0 = 0
+                    particle.current_reef_phi0 = 0
+                    particle.current_reef_frac = 0
 
-                    particle.delete() # Delete particle, since no more sinks can be saved
+                    # Add to event number counter
+                    particle.e_num += 1
 
-                # Then reset current values to zero
-                particle.current_reef_grp = 0
-                particle.current_reef_time = 0
-                particle.current_reef_t0 = 0
-                particle.current_reef_phi0 = 0
-                particle.current_reef_frac = 0
+                if new_event:
+                    # Add status to current (for current event) values
+                    # Timesteps at current reef
+                    particle.current_reef_time = 1
 
-                # Add to event number counter
-                particle.e_num += 1
+                    # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
+                    particle.current_reef_t0 = (particle.ot/particle.dt) - 1
 
-            if new_event:
-                # Add status to current (for current event) values
-                # Timesteps at current reef
-                particle.current_reef_time = 1
+                    # Phi upon arrival
+                    particle.current_reef_phi0 = particle.phi
 
-                # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
-                particle.current_reef_t0 = (particle.ot/particle.dt) - 1
+                    # Phi at current reef
+                    particle.current_reef_phi += particle.rf*particle.dt
 
-                # Phi upon arrival
-                particle.current_reef_phi0 = particle.phi
+                    # ID of current sink
+                    particle.current_sink_grp = particle.grp
 
-                # Phi at current reef
-                particle.current_reef_phi += particle.rf*particle.dt
+                # Finally, check if particle needs to be deleted
+                if particle.ot >= fieldset.max_age:
 
-                # ID of current sink
-                particle.current_sink_grp = particle.grp
+                    # Only delete particles where at least 1 event has been recorded
+                    if particle.e_num > 0:
+                        particle.delete()
+        else:
+            # Test event controller for validation
+            def event(particle, fieldset, time):
+                lm = 8e-7
+                ls = 1e-5
 
-            # Finally, check if particle needs to be deleted
-            if particle.ot >= fieldset.max_age:
+                # 1 Keep track of the amount of time spent at sea
+                particle.ot += particle.dt
 
-                # Only delete particles where at least 1 event has been recorded
-                if particle.e_num > 0:
-                    particle.delete()
+                # 2 Assess reef status
+                particle.grp = fieldset.coral_grp_c[particle]
+
+                save_event = False
+                new_event = False
+
+                # 3 Trigger event cascade if larva is in a reef site
+                if particle.grp > 0:
+
+                    particle.rf = fieldset.coral_frac_c[particle]
+
+                    # Check if an event has already been triggered
+                    if particle.current_reef_time > 0:
+
+                        # Check if we are in the same reef group as the current event
+                        if particle.grp == particle.current_reef_grp:
+
+                            # If contiguous event, just add time and phi
+                            particle.current_reef_time += 1
+                            particle.phi += particle.rf*particle.dt
+                            particle.larval_number = particle.larval_number - (particle.larval_number)*(lm + (ls*particle.rf))*(particle.dt)
+
+                            # But also check that the particle isn't about to expire (save if so)
+                            # Otherwise particles hanging around reefs at the end of the simulation
+                            # won't get saved.
+
+                            if particle.ot > fieldset.max_age:
+                                save_event = True
+
+                        else:
+
+                            # Otherwise, we need to save the old event and create a new event
+                            save_event = True
+                            new_event = True
+
+                    else:
+
+                        # If event has not been triggered, create a new event
+                        new_event = True
+
+                else:
+
+                    # Otherwise, check if ongoing event has just ended
+                    if particle.current_reef_time > 0:
+
+                        save_event = True
+
+                if save_event:
+                    # Save current values
+                    # Unfortunately, due to the limited functions allowed in parcels, this
+                    # required an horrendous if-else chain
+
+                    if particle.e_num == 0:
+                        particle.g0 = particle.current_reef_grp
+                        particle.t0 = particle.current_reef_time
+                        particle.s0 = particle.current_reef_t0
+                        particle.p0 = particle.current_reef_phi0
+                        particle.f0 = particle.current_reef_phi
+                        particle.larval_loss0 = particle.current_reef_larval_number0 - particle.larval_number
+                    elif particle.e_num == 1:
+                        particle.g1 = particle.current_reef_grp
+                        particle.t1 = particle.current_reef_time
+                        particle.s1 = particle.current_reef_t0
+                        particle.p1 = particle.current_reef_phi0
+                        particle.f1 = particle.current_reef_phi
+                        particle.larval_loss1 = particle.current_reef_larval_number0 - particle.larval_number
+                    elif particle.e_num == 2:
+                        particle.g2 = particle.current_reef_grp
+                        particle.t2 = particle.current_reef_time
+                        particle.s2 = particle.current_reef_t0
+                        particle.p2 = particle.current_reef_phi0
+                        particle.f2 = particle.current_reef_phi
+                        particle.larval_loss2 = particle.current_reef_larval_number0 - particle.larval_number
+                    elif particle.e_num == 3:
+                        particle.g3 = particle.current_reef_grp
+                        particle.t3 = particle.current_reef_time
+                        particle.s3 = particle.current_reef_t0
+                        particle.p3 = particle.current_reef_phi0
+                        particle.f3 = particle.current_reef_phi
+                        particle.larval_loss3 = particle.current_reef_larval_number0 - particle.larval_number
+                    elif particle.e_num == 4:
+                        particle.g4 = particle.current_reef_grp
+                        particle.t4 = particle.current_reef_time
+                        particle.s4 = particle.current_reef_t0
+                        particle.p4 = particle.current_reef_phi0
+                        particle.f4 = particle.current_reef_phi
+                        particle.larval_loss4 = particle.current_reef_larval_number0 - particle.larval_number
+
+                        particle.delete() # Delete particle, since no more sinks can be saved
+
+                    # Then reset current values to zero
+                    particle.current_reef_grp = 0
+                    particle.current_reef_time = 0
+                    particle.current_reef_t0 = 0
+                    particle.current_reef_phi0 = 0
+                    particle.current_reef_frac = 0
+
+                    # Add to event number counter
+                    particle.e_num += 1
+
+                if new_event:
+                    # Add status to current (for current event) values
+                    # Timesteps at current reef
+                    particle.current_reef_time = 1
+
+                    # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
+                    particle.current_reef_t0 = (particle.ot/particle.dt) - 1
+
+                    # Phi upon arrival
+                    particle.current_reef_phi0 = particle.phi
+
+                    # Phi at current reef
+                    particle.current_reef_phi += particle.rf*particle.dt
+
+                    # ID of current sink
+                    particle.current_sink_grp = particle.grp
+
+                    # Larval number at start of current sink
+                    particle.current_reef_larval_number0 = particle.larval_number
+
+                    particle.larval_number = particle.larval_number - (particle.larval_number)*(lm + (ls*particle.rf))*(particle.dt)
+
+                # Finally, check if particle needs to be deleted
+                if particle.ot >= fieldset.max_age:
+
+                    # Only delete particles where at least 1 event has been recorded
+                    if particle.e_num > 0:
+                        particle.delete()
+
+        self.kernels = (self.pset.Kernel(AdvectionRK4) +
+                        self.pset.Kernel(event))
+
+    def run(self):
+        """
+        This function runs OceanParcels
+
+        """
+
+        def deleteParticle(particle, fieldset, time):
+            #  Recovery kernel to delete a particle if an error occurs
+            particle.delete()
+
+        self.pset.execute(self.kernels,
+                          runtime=self.params['run_time'],
+                          dt=self.params['dt'],
+                          recovery={ErrorCode.ErrorOutOfBounds: deleteParticle,
+                                    ErrorCode.ErrorInterpolation: deleteParticle},
+                          output_file=self.trajectory_file)
+
+
+        self.trajectory_file.export()
+
+
+
+
+
+
+
+
+
 
 
 

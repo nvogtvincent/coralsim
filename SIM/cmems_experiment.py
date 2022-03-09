@@ -31,6 +31,7 @@ dirs['traj'] = dirs['root'] + 'TRAJ/'
 fh = {}
 fh['currents'] = sorted(glob(dirs['model'] + 'CMEMS_SFC*.nc'))
 fh['grid'] = dirs['grid'] + 'coral_grid.nc'
+fh['traj'] = dirs['traj'] + 'example_trajectory.nc'
 
 # GRID NAMES
 dimensions_grd = {'rho': {'lon': 'lon_rho_c', 'lat': 'lat_rho_c'},
@@ -39,7 +40,7 @@ dimensions_vel = {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}
 variables_vel = {'U': 'uo', 'V': 'vo'}
 
 # MODEL PARAMETERS
-particles_per_cell = 100
+particles_per_cell = 4
 release_year = 1993
 release_month = 1
 release_day = 1
@@ -61,7 +62,7 @@ experiment.create_particles(num_per_cell=particles_per_cell,
                             export_coral_cover=True, export_grp=True, export_eez=True,
                             plot=False, plot_colour='grp', plot_fh=dirs['fig'] + 'initial_position_seychelles.png')
 
-# Import ocean currents
+# Import ocean currents (and generate FieldSet)
 experiment.import_currents(fh=fh['currents'], variables=variables_vel,
                            dimensions=dimensions_vel, interp_method='linear')
 
@@ -71,12 +72,18 @@ experiment.add_release_time(datetime(year=release_year,
                                      day=release_day,
                                      hour=0))
 
-# Add kernel fields to fieldset
+# Add kernel fields to FieldSet
 experiment.add_fields({'groups': 'coral_grp_c', 'coral_fraction': 'coral_frac_c'})
 
+# Generate ParticleSet
+experiment.create_particleset(fh=fh['traj'], test=True)
+
 # Create kernels (to do: consider variable competency period)
-experiment.create_kernels(competency_period=timedelta(days=5),
+experiment.create_kernels(competency_period=timedelta(days=0),
                           diffusion=False, dt=timedelta(hours=1),
-                          run_time=timedelta(days=120))
+                          run_time=timedelta(days=120), test=True)
+
+# Run the experiment
+experiment.run()
 
 
