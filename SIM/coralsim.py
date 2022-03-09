@@ -468,6 +468,9 @@ class experiment():
             self.params['groups_varname'] = fields['groups']
             self.params['coral_fraction_varname'] = fields['coral_fraction']
 
+        if self.params['groups_varname'] != 'coral_grp_c' or self.params['coral_fraction_varname'] != 'coral_frac_c':
+            raise NotImplementedError('Groups variable must currently be coral_grp_c and coral fraction variable coral_frac_c')
+
         if self.params['grid_type'] == 'A':
             for field in fields.values():
                 # Firstly check that the field has the correct dimensions (i.e. PSI for A-Grid)
@@ -509,7 +512,8 @@ class experiment():
 
         if 'diffusion' in kwargs:
             self.params['Kh'] = kwargs['diffusion']
-            raise NotImplementedError('Diffusion not yet implemented')
+            if kwargs['diffusion']:
+                raise NotImplementedError('Diffusion not yet implemented')
         else:
             self.params['Kh'] = None
 
@@ -518,6 +522,8 @@ class experiment():
 
         assert kwargs['run_time'].total_seconds()/kwargs['dt'].total_seconds() < np.iinfo(np.uint16).max
 
+        self.fieldset.add_constant('max_age', kwargs['run_time'].total_seconds() - kwargs['dt'].total_seconds())
+
         # Create Particle Class
         class larva(JITParticle):
 
@@ -525,11 +531,17 @@ class experiment():
             # TEMPORARY VARIABLES FOR TRACKING PARTICLE POSITION/STATUS       #
             ###################################################################
 
-            # Group of current cell (>0 if in any coastal cell)
+            # Group of current cell (>0 if in any reef cell)
             grp = Variable('grp',
                            dtype=np.int8,
                            initial=0,
                            to_write=False)
+
+            # Reef fraction of current cell (>0 if in any reef cell)
+            rf = Variable('rf',
+                          dtype=np.float32,
+                          initial=0,
+                          to_write=False)
 
             # Time at sea (Total time since spawning)
             ot  = Variable('ot',
@@ -584,14 +596,14 @@ class experiment():
                                        initial=0,
                                        to_write=False)
 
-            # Current reef phi0 (memory of phi when the CURRENT reef group was reached)
-            current_reef_phi0 = Variable('current_reef_phi0',
+            # Current reef Phi (memory of accumulatd phi inthe CURRENT reef group)
+            current_reef_phi = Variable('current_reef_phi',
                                          dtype=np.float32,
                                          initial=0.,
                                          to_write=False)
 
-            # Current reef fraction (memory of the reef fraction of the CURRENT reef group)
-            current_reef_frac = Variable('current_reef_frac',
+            # Current reef phi0 (memory of phi when the CURRENT reef group was reached)
+            current_reef_phi0 = Variable('current_reef_phi0',
                                          dtype=np.float32,
                                          initial=0.,
                                          to_write=False)
@@ -640,6 +652,9 @@ class experiment():
             p4 = Variable('p4', dtype=np.float16, initial=0., to_write=True)
             f4 = Variable('f4', dtype=np.float16, initial=0., to_write=True)
 
+            ISO <> grp
+            sink <> grp
+
         ##############################################################################
         # KERNELS ####################################################################
         ##############################################################################
@@ -650,39 +665,32 @@ class experiment():
             # 1 Keep track of the amount of time spent at sea
             particle.ot += particle.dt
 
-            # 2 Assess coastal status
-            particle.iso = fieldset.iso_psi_all[particle]
+            # 2 Assess reef status
+            particle.grp = fieldset.coral_grp_c[particle]
 
-            if particle.iso > 0:
-
-                # If in coastal cell, keep track of time spent in coastal cell
-                particle.ct += particle.dt
-
-                # Only need to check sink_id if we know we are in a coastal cell
-                particle.sink_id = fieldset.sink_id_psi[particle]
-
-            else:
-                particle.sink_id = 0
-
-            # 3 Manage particle event if relevant
             save_event = False
             new_event = False
 
-            # Trigger event if particle is within selected sink site
-            if particle.sink_id > 0:
+            # 3 Trigger event cascade if larva is in a reef site
+            if particle.grp > 0:
 
-                # Check if event has already been triggered
-                if particle.actual_sink_status > 0:
+                particle.rf = fieldset.coral_frac_c[particle]
 
-                    # Check if we are in the same sink cell as the current event
-                    if particle.sink_id == particle.actual_sink_id:
+                # Check if an event has already been triggered
+                if particle.current_reef_time > 0:
 
-                        # If contiguous event, just add time
-                        particle.actual_sink_status += 1
+                    # Check if we are in the same reef group as the current event
+                    if particle.grp == particle.current_reef_grp:
+
+                        # If contiguous event, just add time and phi
+                        particle.current_reef_time += 1
+                        particle.phi += particle.rf*particle.dt
 
                         # But also check that the particle isn't about to expire (save if so)
-                        # Otherwise particles hanging around coastal regions forever won't get saved
-                        if particle.ot > fieldset.max_age - 3600:
+                        # Otherwise particles hanging around reefs at the end of the simulation
+                        # won't get saved.
+
+                        if particle.ot > fieldset.max_age:
                             save_event = True
 
                     else:
@@ -699,218 +707,77 @@ class experiment():
             else:
 
                 # Otherwise, check if ongoing event has just ended
-                if particle.actual_sink_status > 0:
+                if particle.current_reef_time > 0:
 
                     save_event = True
 
             if save_event:
-                # Save actual values
+                # Save current values
                 # Unfortunately, due to the limited functions allowed in parcels, this
                 # required an horrendous if-else chain
 
                 if particle.e_num == 0:
-                    particle.e0 += (particle.actual_sink_t0)
-                    particle.e0 += (particle.actual_sink_ct)*2**20
-                    particle.e0 += (particle.actual_sink_status)*2**40
-                    particle.e0 += (particle.actual_sink_id)*2**52
+                    particle.g0 = particle.current_reef_grp
+                    particle.t0 = particle.current_reef_time
+                    particle.s0 = particle.current_reef_t0
+                    particle.p0 = particle.current_reef_phi0
+                    particle.f0 = particle.current_reef_phi
                 elif particle.e_num == 1:
-                    particle.e1 += (particle.actual_sink_t0)
-                    particle.e1 += (particle.actual_sink_ct)*2**20
-                    particle.e1 += (particle.actual_sink_status)*2**40
-                    particle.e1 += (particle.actual_sink_id)*2**52
+                    particle.g1 = particle.current_reef_grp
+                    particle.t1 = particle.current_reef_time
+                    particle.s1 = particle.current_reef_t0
+                    particle.p1 = particle.current_reef_phi0
+                    particle.f1 = particle.current_reef_phi
                 elif particle.e_num == 2:
-                    particle.e2 += (particle.actual_sink_t0)
-                    particle.e2 += (particle.actual_sink_ct)*2**20
-                    particle.e2 += (particle.actual_sink_status)*2**40
-                    particle.e2 += (particle.actual_sink_id)*2**52
+                    particle.g2 = particle.current_reef_grp
+                    particle.t2 = particle.current_reef_time
+                    particle.s2 = particle.current_reef_t0
+                    particle.p2 = particle.current_reef_phi0
+                    particle.f2 = particle.current_reef_phi
                 elif particle.e_num == 3:
-                    particle.e3 += (particle.actual_sink_t0)
-                    particle.e3 += (particle.actual_sink_ct)*2**20
-                    particle.e3 += (particle.actual_sink_status)*2**40
-                    particle.e3 += (particle.actual_sink_id)*2**52
+                    particle.g3 = particle.current_reef_grp
+                    particle.t3 = particle.current_reef_time
+                    particle.s3 = particle.current_reef_t0
+                    particle.p3 = particle.current_reef_phi0
+                    particle.f3 = particle.current_reef_phi
                 elif particle.e_num == 4:
-                    particle.e4 += (particle.actual_sink_t0)
-                    particle.e4 += (particle.actual_sink_ct)*2**20
-                    particle.e4 += (particle.actual_sink_status)*2**40
-                    particle.e4 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 5:
-                    particle.e5 += (particle.actual_sink_t0)
-                    particle.e5 += (particle.actual_sink_ct)*2**20
-                    particle.e5 += (particle.actual_sink_status)*2**40
-                    particle.e5 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 6:
-                    particle.e6 += (particle.actual_sink_t0)
-                    particle.e6 += (particle.actual_sink_ct)*2**20
-                    particle.e6 += (particle.actual_sink_status)*2**40
-                    particle.e6 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 7:
-                    particle.e7 += (particle.actual_sink_t0)
-                    particle.e7 += (particle.actual_sink_ct)*2**20
-                    particle.e7 += (particle.actual_sink_status)*2**40
-                    particle.e7 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 8:
-                    particle.e8 += (particle.actual_sink_t0)
-                    particle.e8 += (particle.actual_sink_ct)*2**20
-                    particle.e8 += (particle.actual_sink_status)*2**40
-                    particle.e8 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 9:
-                    particle.e9 += (particle.actual_sink_t0)
-                    particle.e9 += (particle.actual_sink_ct)*2**20
-                    particle.e9 += (particle.actual_sink_status)*2**40
-                    particle.e9 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 10:
-                    particle.e10 += (particle.actual_sink_t0)
-                    particle.e10 += (particle.actual_sink_ct)*2**20
-                    particle.e10 += (particle.actual_sink_status)*2**40
-                    particle.e10 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 11:
-                    particle.e11 += (particle.actual_sink_t0)
-                    particle.e11 += (particle.actual_sink_ct)*2**20
-                    particle.e11 += (particle.actual_sink_status)*2**40
-                    particle.e11 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 12:
-                    particle.e12 += (particle.actual_sink_t0)
-                    particle.e12 += (particle.actual_sink_ct)*2**20
-                    particle.e12 += (particle.actual_sink_status)*2**40
-                    particle.e12 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 13:
-                    particle.e13 += (particle.actual_sink_t0)
-                    particle.e13 += (particle.actual_sink_ct)*2**20
-                    particle.e13 += (particle.actual_sink_status)*2**40
-                    particle.e13 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 14:
-                    particle.e14 += (particle.actual_sink_t0)
-                    particle.e14 += (particle.actual_sink_ct)*2**20
-                    particle.e14 += (particle.actual_sink_status)*2**40
-                    particle.e14 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 15:
-                    particle.e15 += (particle.actual_sink_t0)
-                    particle.e15 += (particle.actual_sink_ct)*2**20
-                    particle.e15 += (particle.actual_sink_status)*2**40
-                    particle.e15 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 16:
-                    particle.e16 += (particle.actual_sink_t0)
-                    particle.e16 += (particle.actual_sink_ct)*2**20
-                    particle.e16 += (particle.actual_sink_status)*2**40
-                    particle.e16 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 17:
-                    particle.e17 += (particle.actual_sink_t0)
-                    particle.e17 += (particle.actual_sink_ct)*2**20
-                    particle.e17 += (particle.actual_sink_status)*2**40
-                    particle.e17 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 18:
-                    particle.e18 += (particle.actual_sink_t0)
-                    particle.e18 += (particle.actual_sink_ct)*2**20
-                    particle.e18 += (particle.actual_sink_status)*2**40
-                    particle.e18 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 19:
-                    particle.e19 += (particle.actual_sink_t0)
-                    particle.e19 += (particle.actual_sink_ct)*2**20
-                    particle.e19 += (particle.actual_sink_status)*2**40
-                    particle.e19 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 20:
-                    particle.e20 += (particle.actual_sink_t0)
-                    particle.e20 += (particle.actual_sink_ct)*2**20
-                    particle.e20 += (particle.actual_sink_status)*2**40
-                    particle.e20 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 21:
-                    particle.e21 += (particle.actual_sink_t0)
-                    particle.e21 += (particle.actual_sink_ct)*2**20
-                    particle.e21 += (particle.actual_sink_status)*2**40
-                    particle.e21 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 22:
-                    particle.e22 += (particle.actual_sink_t0)
-                    particle.e22 += (particle.actual_sink_ct)*2**20
-                    particle.e22 += (particle.actual_sink_status)*2**40
-                    particle.e22 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 23:
-                    particle.e23 += (particle.actual_sink_t0)
-                    particle.e23 += (particle.actual_sink_ct)*2**20
-                    particle.e23 += (particle.actual_sink_status)*2**40
-                    particle.e23 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 24:
-                    particle.e24 += (particle.actual_sink_t0)
-                    particle.e24 += (particle.actual_sink_ct)*2**20
-                    particle.e24 += (particle.actual_sink_status)*2**40
-                    particle.e24 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 25:
-                    particle.e25 += (particle.actual_sink_t0)
-                    particle.e25 += (particle.actual_sink_ct)*2**20
-                    particle.e25 += (particle.actual_sink_status)*2**40
-                    particle.e25 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 26:
-                    particle.e26 += (particle.actual_sink_t0)
-                    particle.e26 += (particle.actual_sink_ct)*2**20
-                    particle.e26 += (particle.actual_sink_status)*2**40
-                    particle.e26 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 27:
-                    particle.e27 += (particle.actual_sink_t0)
-                    particle.e27 += (particle.actual_sink_ct)*2**20
-                    particle.e27 += (particle.actual_sink_status)*2**40
-                    particle.e27 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 28:
-                    particle.e28 += (particle.actual_sink_t0)
-                    particle.e28 += (particle.actual_sink_ct)*2**20
-                    particle.e28 += (particle.actual_sink_status)*2**40
-                    particle.e28 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 29:
-                    particle.e29 += (particle.actual_sink_t0)
-                    particle.e29 += (particle.actual_sink_ct)*2**20
-                    particle.e29 += (particle.actual_sink_status)*2**40
-                    particle.e29 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 30:
-                    particle.e30 += (particle.actual_sink_t0)
-                    particle.e30 += (particle.actual_sink_ct)*2**20
-                    particle.e30 += (particle.actual_sink_status)*2**40
-                    particle.e30 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 31:
-                    particle.e31 += (particle.actual_sink_t0)
-                    particle.e31 += (particle.actual_sink_ct)*2**20
-                    particle.e31 += (particle.actual_sink_status)*2**40
-                    particle.e31 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 32:
-                    particle.e32 += (particle.actual_sink_t0)
-                    particle.e32 += (particle.actual_sink_ct)*2**20
-                    particle.e32 += (particle.actual_sink_status)*2**40
-                    particle.e32 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 33:
-                    particle.e33 += (particle.actual_sink_t0)
-                    particle.e33 += (particle.actual_sink_ct)*2**20
-                    particle.e33 += (particle.actual_sink_status)*2**40
-                    particle.e33 += (particle.actual_sink_id)*2**52
-                elif particle.e_num == 34:
-                    particle.e34 += (particle.actual_sink_t0)
-                    particle.e34 += (particle.actual_sink_ct)*2**20
-                    particle.e34 += (particle.actual_sink_status)*2**40
-                    particle.e34 += (particle.actual_sink_id)*2**52
+                    particle.g4 = particle.current_reef_grp
+                    particle.t4 = particle.current_reef_time
+                    particle.s4 = particle.current_reef_t0
+                    particle.p4 = particle.current_reef_phi0
+                    particle.f4 = particle.current_reef_phi
 
                     particle.delete() # Delete particle, since no more sinks can be saved
 
-                # Then reset actual values to zero
-                particle.actual_sink_t0 = 0
-                particle.actual_sink_ct = 0
-                particle.actual_sink_status = 0
-                particle.actual_sink_id = 0
+                # Then reset current values to zero
+                particle.current_reef_grp = 0
+                particle.current_reef_time = 0
+                particle.current_reef_t0 = 0
+                particle.current_reef_phi0 = 0
+                particle.current_reef_frac = 0
 
                 # Add to event number counter
                 particle.e_num += 1
 
             if new_event:
-                # Add status to actual (for current event) values
-                # Timesteps at current sink
-                particle.actual_sink_status = 1
+                # Add status to current (for current event) values
+                # Timesteps at current reef
+                particle.current_reef_time = 1
 
-                # Timesteps spent in the ocean overall (minus one, before this step)
-                particle.actual_sink_t0 = (particle.ot/particle.dt) - 1
+                # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
+                particle.current_reef_t0 = (particle.ot/particle.dt) - 1
 
-                # Timesteps spent in the coast overall (minus one, before this step)
-                particle.actual_sink_ct = (particle.ct/particle.dt) - 1
+                # Phi upon arrival
+                particle.current_reef_phi0 = particle.phi
+
+                # Phi at current reef
+                particle.current_reef_phi += particle.rf*particle.dt
 
                 # ID of current sink
-                particle.actual_sink_id = particle.sink_id
+                particle.current_sink_grp = particle.grp
 
             # Finally, check if particle needs to be deleted
-            if particle.ot >= fieldset.max_age - 3600:
+            if particle.ot >= fieldset.max_age:
 
                 # Only delete particles where at least 1 event has been recorded
                 if particle.e_num > 0:
