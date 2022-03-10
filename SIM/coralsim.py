@@ -842,6 +842,11 @@ class Experiment():
                     ###########################################################
 
                     save_event = True
+                else:
+                    # TESTING ONLY ############################################
+                    particle.N  = particle.N - (lm*particle.N*particle.dt)
+                    ###########################################################
+
 
             if save_event:
                 # Save current values
@@ -1065,7 +1070,7 @@ class Experiment():
         pct_diff = 100*(Ns_pred_all - Ns_all)/(Ns_all)
 
         # Plot
-        plt.hist(pct_diff[np.isfinite(pct_diff)], range=(-200,200), bins=200)
+        plt.hist(pct_diff[np.isfinite(pct_diff)], range=(-10,10), bins=200)
 
 
 
