@@ -40,7 +40,7 @@ dimensions_vel = {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}
 variables_vel = {'U': 'uo', 'V': 'vo'}
 
 # MODEL PARAMETERS
-particles_per_cell = 4
+particles_per_cell = 1600
 release_year = 1993
 release_month = 1
 release_day = 1
@@ -75,16 +75,16 @@ experiment.add_release_time(datetime(year=release_year,
 experiment.add_fields({'idx': 'coral_idx_c', 'coral_fraction': 'coral_frac_c', 'coral_cover': 'coral_cover_c'})
 
 # Generate ParticleSet
-experiment.create_particleset(fh=fh['traj'], test=True)
+experiment.create_particleset(fh=fh['traj'], test=False)
 
 # Create kernels (to do: consider variable competency period)
-experiment.create_kernels(competency_period=timedelta(days=0),
+experiment.create_kernels(competency_period=timedelta(days=5),
                           diffusion=False, dt=timedelta(minutes=30),
-                          run_time=timedelta(days=10), test=True)
+                          run_time=timedelta(days=150), test=False)
 
 # Run the experiment
 experiment.run()
 
 # Carry out tests
-experiment.postrun_tests()
+# experiment.postrun_tests()
 

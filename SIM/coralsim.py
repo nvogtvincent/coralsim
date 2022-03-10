@@ -555,7 +555,7 @@ class Experiment():
             if 'test' not in self.params.keys():
                 self.params['test'] = False
         else:
-            self.params['test'] = True
+            self.params['test'] = kwargs['test']
 
         if 'fh' not in kwargs:
             raise KeyError('Filehandle required for output')
@@ -666,28 +666,80 @@ class Experiment():
             ts6 = Variable('ts6', dtype=np.int32, initial=0, to_write=True)
             dt6 = Variable('dt6', dtype=np.int32, initial=0, to_write=True)
 
+            i7 = Variable('i7', dtype=np.int32, initial=0, to_write=True)
+            ts7 = Variable('ts7', dtype=np.int32, initial=0, to_write=True)
+            dt7 = Variable('dt7', dtype=np.int32, initial=0, to_write=True)
+
+            i8 = Variable('i8', dtype=np.int32, initial=0, to_write=True)
+            ts8 = Variable('ts8', dtype=np.int32, initial=0, to_write=True)
+            dt8 = Variable('dt8', dtype=np.int32, initial=0, to_write=True)
+
+            i9 = Variable('i9', dtype=np.int32, initial=0, to_write=True)
+            ts9 = Variable('ts9', dtype=np.int32, initial=0, to_write=True)
+            dt9 = Variable('dt9', dtype=np.int32, initial=0, to_write=True)
+
+            i10 = Variable('i10', dtype=np.int32, initial=0, to_write=True)
+            ts10 = Variable('ts10', dtype=np.int32, initial=0, to_write=True)
+            dt10 = Variable('dt10', dtype=np.int32, initial=0, to_write=True)
+
+            i11 = Variable('i11', dtype=np.int32, initial=0, to_write=True)
+            ts11 = Variable('ts11', dtype=np.int32, initial=0, to_write=True)
+            dt11 = Variable('dt11', dtype=np.int32, initial=0, to_write=True)
+
+            i12 = Variable('i12', dtype=np.int32, initial=0, to_write=True)
+            ts12 = Variable('ts12', dtype=np.int32, initial=0, to_write=True)
+            dt12 = Variable('dt12', dtype=np.int32, initial=0, to_write=True)
+
+            i13 = Variable('i13', dtype=np.int32, initial=0, to_write=True)
+            ts13 = Variable('ts13', dtype=np.int32, initial=0, to_write=True)
+            dt13 = Variable('dt13', dtype=np.int32, initial=0, to_write=True)
+
+            i14 = Variable('i14', dtype=np.int32, initial=0, to_write=True)
+            ts14 = Variable('ts14', dtype=np.int32, initial=0, to_write=True)
+            dt14 = Variable('dt14', dtype=np.int32, initial=0, to_write=True)
+
+            i15 = Variable('i15', dtype=np.int32, initial=0, to_write=True)
+            ts15 = Variable('ts15', dtype=np.int32, initial=0, to_write=True)
+            dt15 = Variable('dt15', dtype=np.int32, initial=0, to_write=True)
+
+            i16 = Variable('i16', dtype=np.int32, initial=0, to_write=True)
+            ts16 = Variable('ts16', dtype=np.int32, initial=0, to_write=True)
+            dt16 = Variable('dt16', dtype=np.int32, initial=0, to_write=True)
+
+            i17 = Variable('i17', dtype=np.int32, initial=0, to_write=True)
+            ts17 = Variable('ts17', dtype=np.int32, initial=0, to_write=True)
+            dt17 = Variable('dt17', dtype=np.int32, initial=0, to_write=True)
+
+            i18 = Variable('i18', dtype=np.int32, initial=0, to_write=True)
+            ts18 = Variable('ts18', dtype=np.int32, initial=0, to_write=True)
+            dt18 = Variable('dt18', dtype=np.int32, initial=0, to_write=True)
+
+            i19 = Variable('i19', dtype=np.int32, initial=0, to_write=True)
+            ts19 = Variable('ts19', dtype=np.int32, initial=0, to_write=True)
+            dt19 = Variable('dt19', dtype=np.int32, initial=0, to_write=True)
+
             ##################################################################
             # TEMPORARY TESTING VARIABLES ####################################
             ##################################################################
 
             # Number of larvae represented by particle
-            N = Variable('N', dtype=np.float32, initial=1., to_write=True)
+            # N = Variable('N', dtype=np.float32, initial=1., to_write=True)
 
-            # Larvae lost to sites
-            Ns0 = Variable('Ns0', dtype=np.float32, initial=0., to_write=True)
-            Ns1 = Variable('Ns1', dtype=np.float32, initial=0., to_write=True)
-            Ns2 = Variable('Ns2', dtype=np.float32, initial=0., to_write=True)
-            Ns3 = Variable('Ns3', dtype=np.float32, initial=0., to_write=True)
-            Ns4 = Variable('Ns4', dtype=np.float32, initial=0., to_write=True)
-            Ns5 = Variable('Ns5', dtype=np.float32, initial=0., to_write=True)
-            Ns6 = Variable('Ns6', dtype=np.float32, initial=0., to_write=True)
+            # # Larvae lost to sites
+            # Ns0 = Variable('Ns0', dtype=np.float32, initial=0., to_write=True)
+            # Ns1 = Variable('Ns1', dtype=np.float32, initial=0., to_write=True)
+            # Ns2 = Variable('Ns2', dtype=np.float32, initial=0., to_write=True)
+            # Ns3 = Variable('Ns3', dtype=np.float32, initial=0., to_write=True)
+            # Ns4 = Variable('Ns4', dtype=np.float32, initial=0., to_write=True)
+            # Ns5 = Variable('Ns5', dtype=np.float32, initial=0., to_write=True)
+            # Ns6 = Variable('Ns6', dtype=np.float32, initial=0., to_write=True)
 
-            # Number of larvae accumulated in the current reef
-            Ns = Variable('Ns', dtype=np.float32, initial=0., to_write=True)
-            N0 = Variable('N0', dtype=np.float32, initial=0., to_write=True)
+            # # Number of larvae accumulated in the current reef
+            # Ns = Variable('Ns', dtype=np.float32, initial=0., to_write=True)
+            # N0 = Variable('N0', dtype=np.float32, initial=0., to_write=True)
 
-            # Reef fraction
-            rf = Variable('rf', dtype=np.float32, initial=0., to_write=True)
+            # # Reef fraction
+            # rf = Variable('rf', dtype=np.float32, initial=0., to_write=True)
 
         self.pset = ParticleSet.from_list(fieldset=self.fieldset,
                                           pclass=larva,
@@ -722,11 +774,11 @@ class Experiment():
 
         if 'competency_period' in kwargs:
             self.params['competency_period'] = kwargs['competency_period'].total_seconds()
-            if self.params['competency_period'] > 0:
-                raise NotImplementedError('Competency not yet implemented')
         else:
             warnings.warn('No competency period set')
             self.params['competency_period'] = 0
+
+        self.fieldset.add_constant('competency', self.params['competency_period']/kwargs['dt'].total_seconds())
 
         if 'diffusion' in kwargs:
             self.params['Kh'] = kwargs['diffusion']
@@ -742,7 +794,7 @@ class Experiment():
             if 'test' not in self.params.keys():
                 self.params['test'] = False
         else:
-            self.params['test'] = True
+            self.params['test'] = kwargs['test']
 
         assert kwargs['run_time'].total_seconds()/kwargs['dt'].total_seconds() < np.iinfo(np.uint16).max
 
@@ -759,8 +811,8 @@ class Experiment():
         def event(particle, fieldset, time):
 
             # TESTING ONLY ############################################
-            lm = 8e-7
-            ls = 1e-5
+            # lm = 8e-7
+            # ls = 1e-5
             ###########################################################
 
             # 1 Keep track of the amount of time spent at sea
@@ -770,14 +822,14 @@ class Experiment():
             particle.idx = fieldset.coral_idx_c[particle]
 
             # TESTING ONLY ############################################
-            particle.rf = fieldset.coral_frac_c[particle]
+            # particle.rf = fieldset.coral_frac_c[particle]
             ###########################################################
 
             save_event = False
             new_event = False
 
-            # 3 Trigger event cascade if larva is in a reef site
-            if particle.idx > 0:
+            # 3 Trigger event cascade if larva is in a reef site and competency has been reached
+            if particle.idx > 0 and particle.ot > fieldset.competency:
 
                 # TESTING ONLY ############################################
                 # particle.Ns = particle.Ns + (particle.rf*ls*particle.N*particle.dt)
@@ -795,9 +847,9 @@ class Experiment():
                         particle.current_reef_ts += 1
 
                         # TESTING ONLY ############################################
-                        particle.Ns = particle.Ns + (particle.rf*ls*particle.N*particle.dt)
-                        particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
-                        particle.N0 = particle.rf*ls*particle.N*particle.dt
+                        # particle.Ns = particle.Ns + (particle.rf*ls*particle.N*particle.dt)
+                        # particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
+                        # particle.N0 = particle.rf*ls*particle.N*particle.dt
                         ###########################################################
 
                         # But also check that the particle isn't about to expire (save if so)
@@ -810,9 +862,9 @@ class Experiment():
                     else:
 
                         # TESTING ONLY ############################################
-                        particle.Ns = particle.Ns
-                        particle.N0 = particle.rf*ls*particle.N*particle.dt
-                        particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
+                        # particle.Ns = particle.Ns
+                        # particle.N0 = particle.rf*ls*particle.N*particle.dt
+                        # particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
                         ###########################################################
 
                         # Otherwise, we need to save the old event and create a new event
@@ -822,9 +874,9 @@ class Experiment():
                 else:
 
                     # TESTING ONLY ############################################
-                    particle.Ns = particle.Ns + (particle.rf*ls*particle.N*particle.dt)
-                    particle.N0 = particle.rf*ls*particle.N*particle.dt
-                    particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
+                    # particle.Ns = particle.Ns + (particle.rf*ls*particle.N*particle.dt)
+                    # particle.N0 = particle.rf*ls*particle.N*particle.dt
+                    # particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
                     ###########################################################
 
                     # If event has not been triggered, create a new event
@@ -836,15 +888,15 @@ class Experiment():
                 if particle.current_reef_ts > 0:
 
                     # TESTING ONLY ############################################
-                    particle.Ns = particle.Ns
-                    particle.N0 = particle.rf*ls*particle.N*particle.dt
-                    particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
+                    # particle.Ns = particle.Ns
+                    # particle.N0 = particle.rf*ls*particle.N*particle.dt
+                    # particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
                     ###########################################################
 
                     save_event = True
-                else:
+                # else:
                     # TESTING ONLY ############################################
-                    particle.N  = particle.N - (lm*particle.N*particle.dt)
+                    # particle.N  = particle.N - (lm*particle.N*particle.dt)
                     ###########################################################
 
 
@@ -858,50 +910,102 @@ class Experiment():
                     particle.ts0 = particle.current_reef_ts0
                     particle.dt0 = particle.current_reef_ts
                     # TESTING ONLY ############################################
-                    particle.Ns0 = particle.Ns
+                    # particle.Ns0 = particle.Ns
                     ###########################################################
                 elif particle.e_num == 1:
                     particle.i1 = particle.current_reef_idx
                     particle.ts1 = particle.current_reef_ts0
                     particle.dt1 = particle.current_reef_ts
                     # TESTING ONLY ############################################
-                    particle.Ns1 = particle.Ns
+                    # particle.Ns1 = particle.Ns
                     ###########################################################
                 elif particle.e_num == 2:
                     particle.i2 = particle.current_reef_idx
                     particle.ts2 = particle.current_reef_ts0
                     particle.dt2 = particle.current_reef_ts
                     # TESTING ONLY ############################################
-                    particle.Ns2 = particle.Ns
+                    # particle.Ns2 = particle.Ns
                     ###########################################################
                 elif particle.e_num == 3:
                     particle.i3 = particle.current_reef_idx
                     particle.ts3 = particle.current_reef_ts0
                     particle.dt3 = particle.current_reef_ts
                     # TESTING ONLY ############################################
-                    particle.Ns3 = particle.Ns
+                    # particle.Ns3 = particle.Ns
                     ###########################################################
                 elif particle.e_num == 4:
                     particle.i4 = particle.current_reef_idx
                     particle.ts4 = particle.current_reef_ts0
                     particle.dt4 = particle.current_reef_ts
                     # TESTING ONLY ############################################
-                    particle.Ns4 = particle.Ns
+                    # particle.Ns4 = particle.Ns
                     ###########################################################
                 elif particle.e_num == 5:
                     particle.i5 = particle.current_reef_idx
                     particle.ts5 = particle.current_reef_ts0
                     particle.dt5 = particle.current_reef_ts
                     # TESTING ONLY ############################################
-                    particle.Ns5 = particle.Ns
+                    # particle.Ns5 = particle.Ns
                     ###########################################################
                 elif particle.e_num == 6:
                     particle.i6 = particle.current_reef_idx
                     particle.ts6 = particle.current_reef_ts0
                     particle.dt6 = particle.current_reef_ts
                     # TESTING ONLY ############################################
-                    particle.Ns6 = particle.Ns
+                    # particle.Ns6 = particle.Ns
                     ###########################################################
+                elif particle.e_num == 7:
+                    particle.i7 = particle.current_reef_idx
+                    particle.ts7 = particle.current_reef_ts0
+                    particle.dt7 = particle.current_reef_ts
+                elif particle.e_num == 8:
+                    particle.i8 = particle.current_reef_idx
+                    particle.ts8 = particle.current_reef_ts0
+                    particle.dt8 = particle.current_reef_ts
+                elif particle.e_num == 9:
+                    particle.i9 = particle.current_reef_idx
+                    particle.ts9 = particle.current_reef_ts0
+                    particle.dt9 = particle.current_reef_ts
+                elif particle.e_num == 10:
+                    particle.i10 = particle.current_reef_idx
+                    particle.ts10 = particle.current_reef_ts0
+                    particle.dt10 = particle.current_reef_ts
+                elif particle.e_num == 11:
+                    particle.i11 = particle.current_reef_idx
+                    particle.ts11 = particle.current_reef_ts0
+                    particle.dt11 = particle.current_reef_ts
+                elif particle.e_num == 12:
+                    particle.i12 = particle.current_reef_idx
+                    particle.ts12 = particle.current_reef_ts0
+                    particle.dt12 = particle.current_reef_ts
+                elif particle.e_num == 13:
+                    particle.i13 = particle.current_reef_idx
+                    particle.ts13 = particle.current_reef_ts0
+                    particle.dt13 = particle.current_reef_ts
+                elif particle.e_num == 14:
+                    particle.i14 = particle.current_reef_idx
+                    particle.ts14 = particle.current_reef_ts0
+                    particle.dt14 = particle.current_reef_ts
+                elif particle.e_num == 15:
+                    particle.i15 = particle.current_reef_idx
+                    particle.ts15 = particle.current_reef_ts0
+                    particle.dt15 = particle.current_reef_ts
+                elif particle.e_num == 16:
+                    particle.i16 = particle.current_reef_idx
+                    particle.ts16 = particle.current_reef_ts0
+                    particle.dt16 = particle.current_reef_ts
+                elif particle.e_num == 17:
+                    particle.i17 = particle.current_reef_idx
+                    particle.ts17 = particle.current_reef_ts0
+                    particle.dt17 = particle.current_reef_ts
+                elif particle.e_num == 18:
+                    particle.i18 = particle.current_reef_idx
+                    particle.ts18 = particle.current_reef_ts0
+                    particle.dt18 = particle.current_reef_ts
+                elif particle.e_num == 19:
+                    particle.i19 = particle.current_reef_idx
+                    particle.ts19 = particle.current_reef_ts0
+                    particle.dt19 = particle.current_reef_ts
 
                     particle.delete() # Delete particle, since no more reefs can be saved
 
@@ -909,7 +1013,7 @@ class Experiment():
                 particle.current_reef_idx = 0
                 particle.current_reef_ts0 = 0
                 particle.current_reef_ts = 0
-                particle.Ns = 0
+                # particle.Ns = 0
 
                 # Add to event number counter
                 particle.e_num += 1
@@ -926,7 +1030,7 @@ class Experiment():
                 particle.current_reef_idx = particle.idx
 
                 # TESTING ONLY ############################################
-                particle.Ns = particle.N0
+                # particle.Ns = particle.N0
                 ###########################################################
 
             # Finally, check if particle needs to be deleted
@@ -1070,7 +1174,7 @@ class Experiment():
         pct_diff = 100*(Ns_pred_all - Ns_all)/(Ns_all)
 
         # Plot
-        plt.hist(pct_diff[np.isfinite(pct_diff)], range=(-10,10), bins=200)
+        plt.hist(pct_diff[np.isfinite(pct_diff)], range=(-2,2), bins=200)
 
 
 
