@@ -354,6 +354,12 @@ dist_thresh_dict = {86 : 1.5,
 
 print('Grouping coral cells into clusters...')
 for i, iso_code in tqdm(enumerate(iso_list), total=len(iso_list)):
+    # Note: this block triggers a bunch of warnings but it isn't a problem
+    #       because we are just using clustering to create reproducable clusters
+    #       that are physically reasonable, rather than some robust application
+    #       of clustering.
+
+
     # 1. Carry out agglomerative clustering (X, model)
     lon_w, lat_w = np.meshgrid(lon_rho_w, lat_rho_w)
     lon_w = lon_w[eez_grid_w == iso_code]
@@ -419,7 +425,7 @@ for i, iso_code in tqdm(enumerate(iso_list), total=len(iso_list)):
         # Manual intervention to isolate Zanzibar
         X[:, 2][np.where((X[:, 0] < 38.975)*(X[:, 0] > 38.80)*(X[:, 1] < -6.0)*(X[:, 1] > -6.34))] = np.max(X[:, 2])+1
 
-    plt.scatter(X[:,0], X[:,1], c=X[:,2], cmap='nipy_spectral')
+    # plt.scatter(X[:,0], X[:,1], c=X[:,2], cmap='nipy_spectral')
 
     # 3. Relabel in latitude order
     #    Firstly find the midpoint latitude for each cluster
@@ -464,8 +470,8 @@ assert np.max(nn_dist) < 0.2
 X_c[:, 2] = X_w[:, 2][nn_nearest_pt]
 
 # Now grid both
-coral_grp_c = np.zeros_like(coral_grid_c)
-coral_grp_w = np.zeros_like(coral_grid_w)
+coral_grp_c = np.zeros_like(coral_grid_c, dtype=np.int16)
+coral_grp_w = np.zeros_like(coral_grid_w, dtype=np.int16)
 
 lon_c, lat_c = np.meshgrid(lon_psi_c, lat_psi_c)
 lon_w, lat_w = np.meshgrid(lon_rho_w, lat_rho_w)
@@ -489,6 +495,49 @@ for i in tqdm(range(np.shape(X_w)[0]), total=np.shape(X_w)[0]):
 # Check that no groups have been lost
 assert np.array_equiv(np.unique(coral_grp_c), np.unique(coral_grp_w))
 
+###############################################################################
+# Generate unique cell indices ################################################
+###############################################################################
+
+# Each cell index is a 16-bit integer : XXXXXXXXYYYYYYYY
+# Where Y is the sub-index within a group, and X is the group number
+coral_idx_c = np.zeros_like(coral_grp_c, dtype=np.uint16)
+coral_idx_w = np.zeros_like(coral_grp_w, dtype=np.uint16)
+
+for grp in np.unique(coral_grp_c):
+    if grp > 0:
+        yidx_list, xidx_list = np.where(coral_grp_c == grp)
+        for i, (yidx, xidx) in enumerate(zip(yidx_list, xidx_list)):
+            cell_idx = i
+            cell_idx += grp*2**8
+            coral_idx_c[yidx, xidx] = cell_idx
+
+            assert grp < 256
+            assert i < 256
+
+            # Note: reverse operation to retrieve the cell sub-index and group
+            #       number is:
+            #       grp : np.floor(test_idx/(2**8))
+            #       sub-index: cell_idx%2**8
+
+for grp in np.unique(coral_grp_w):
+    if grp > 0:
+        yidx_list, xidx_list = np.where(coral_grp_w == grp)
+        for i, (yidx, xidx) in enumerate(zip(yidx_list, xidx_list)):
+            cell_idx = i
+            cell_idx += grp*2**8
+            coral_idx_w[yidx, xidx] = cell_idx
+
+            assert grp < 256
+            assert i < 256
+
+# Ensure that all cell values are unique
+assert len(np.unique(np.ma.masked_where(coral_idx_c == 0, coral_idx_c).compressed())) == np.sum(coral_idx_c > 0)
+assert len(np.unique(np.ma.masked_where(coral_idx_c == 0, coral_idx_c).compressed())) == np.sum(coral_grp_c > 0)
+assert len(np.unique(np.ma.masked_where(coral_idx_w == 0, coral_idx_w).compressed())) == np.sum(coral_idx_w > 0)
+assert len(np.unique(np.ma.masked_where(coral_idx_w == 0, coral_idx_w).compressed())) == np.sum(coral_grp_w > 0)
+assert np.sum(coral_frac_c > 0) == np.sum(coral_grp_c > 0)
+assert np.sum(coral_frac_w > 0) == np.sum(coral_grp_w > 0)
 ###############################################################################
 # Plot reef sites #############################################################
 ###############################################################################
@@ -753,3 +802,13 @@ with Dataset(fh['out'], mode='w') as nc:
     nc.variables['coral_grp_c'].long_name = 'coral_group_on_psi_grid_cmems'
     nc.variables['coral_grp_c'].standard_name = 'coral_group_on_psi_grid_for_cmems'
     nc.variables['coral_grp_c'][:] = set_fill(coral_grp_c, 0, fill_value)
+
+    nc.createVariable('coral_idx_w', 'u2', ('lat_rho_w', 'lon_rho_w'), zlib=True, fill_value=fill_value)
+    nc.variables['coral_idx_w'].long_name = 'coral_index_on_rho_grid_winds'
+    nc.variables['coral_idx_w'].standard_name = 'coral_index_on_rho_grid_for_winds'
+    nc.variables['coral_idx_w'][:] = set_fill(coral_idx_w, 0, fill_value)
+
+    nc.createVariable('coral_idx_c', 'u2', ('lat_psi_c', 'lon_psi_c'), zlib=True, fill_value=fill_value)
+    nc.variables['coral_idx_c'].long_name = 'coral_index_on_psi_grid_cmems'
+    nc.variables['coral_idx_c'].standard_name = 'coral_index_on_psi_grid_for_cmems'
+    nc.variables['coral_idx_c'][:] = set_fill(coral_idx_c, 0, fill_value)
