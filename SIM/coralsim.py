@@ -11,6 +11,7 @@ experiments in OceanParcels.
 
 import numpy as np
 import matplotlib.pyplot as plt
+import cmasher as cmr
 import pandas as pd
 import cartopy.crs as ccrs
 import matplotlib.ticker as mticker
@@ -19,7 +20,7 @@ from parcels import (Field, FieldSet, ParticleSet, JITParticle, AdvectionRK4,
                      ErrorCode, Variable, DiffusionUniformKh, ParcelsRandom)
 from netCDF4 import Dataset
 from datetime import timedelta, datetime
-
+from tqdm import tqdm
 
 
 class Experiment():
@@ -639,84 +640,84 @@ class Experiment():
 
             # Event variables (i = idx, t = arrival time(step), dt = time(steps) at reef)
             i0 = Variable('i0', dtype=np.int32, initial=0, to_write=True)
-            ts0 = Variable('ts0', dtype=np.int32, initial=0, to_write=True)
-            dt0 = Variable('dt0', dtype=np.int32, initial=0, to_write=True)
+            ts0 = Variable('ts0', dtype=np.int16, initial=0, to_write=True)
+            dt0 = Variable('dt0', dtype=np.int16, initial=0, to_write=True)
 
             i1 = Variable('i1', dtype=np.int32, initial=0, to_write=True)
-            ts1 = Variable('ts1', dtype=np.int32, initial=0, to_write=True)
-            dt1 = Variable('dt1', dtype=np.int32, initial=0, to_write=True)
+            ts1 = Variable('ts1', dtype=np.int16, initial=0, to_write=True)
+            dt1 = Variable('dt1', dtype=np.int16, initial=0, to_write=True)
 
             i2 = Variable('i2', dtype=np.int32, initial=0, to_write=True)
-            ts2 = Variable('ts2', dtype=np.int32, initial=0, to_write=True)
-            dt2 = Variable('dt2', dtype=np.int32, initial=0, to_write=True)
+            ts2 = Variable('ts2', dtype=np.int16, initial=0, to_write=True)
+            dt2 = Variable('dt2', dtype=np.int16, initial=0, to_write=True)
 
             i3 = Variable('i3', dtype=np.int32, initial=0, to_write=True)
-            ts3 = Variable('ts3', dtype=np.int32, initial=0, to_write=True)
-            dt3 = Variable('dt3', dtype=np.int32, initial=0, to_write=True)
+            ts3 = Variable('ts3', dtype=np.int16, initial=0, to_write=True)
+            dt3 = Variable('dt3', dtype=np.int16, initial=0, to_write=True)
 
             i4 = Variable('i4', dtype=np.int32, initial=0, to_write=True)
-            ts4 = Variable('ts4', dtype=np.int32, initial=0, to_write=True)
-            dt4 = Variable('dt4', dtype=np.int32, initial=0, to_write=True)
+            ts4 = Variable('ts4', dtype=np.int16, initial=0, to_write=True)
+            dt4 = Variable('dt4', dtype=np.int16, initial=0, to_write=True)
 
             i5 = Variable('i5', dtype=np.int32, initial=0, to_write=True)
-            ts5 = Variable('ts5', dtype=np.int32, initial=0, to_write=True)
-            dt5 = Variable('dt5', dtype=np.int32, initial=0, to_write=True)
+            ts5 = Variable('ts5', dtype=np.int16, initial=0, to_write=True)
+            dt5 = Variable('dt5', dtype=np.int16, initial=0, to_write=True)
 
             i6 = Variable('i6', dtype=np.int32, initial=0, to_write=True)
-            ts6 = Variable('ts6', dtype=np.int32, initial=0, to_write=True)
-            dt6 = Variable('dt6', dtype=np.int32, initial=0, to_write=True)
+            ts6 = Variable('ts6', dtype=np.int16, initial=0, to_write=True)
+            dt6 = Variable('dt6', dtype=np.int16, initial=0, to_write=True)
 
             i7 = Variable('i7', dtype=np.int32, initial=0, to_write=True)
-            ts7 = Variable('ts7', dtype=np.int32, initial=0, to_write=True)
-            dt7 = Variable('dt7', dtype=np.int32, initial=0, to_write=True)
+            ts7 = Variable('ts7', dtype=np.int16, initial=0, to_write=True)
+            dt7 = Variable('dt7', dtype=np.int16, initial=0, to_write=True)
 
             i8 = Variable('i8', dtype=np.int32, initial=0, to_write=True)
-            ts8 = Variable('ts8', dtype=np.int32, initial=0, to_write=True)
-            dt8 = Variable('dt8', dtype=np.int32, initial=0, to_write=True)
+            ts8 = Variable('ts8', dtype=np.int16, initial=0, to_write=True)
+            dt8 = Variable('dt8', dtype=np.int16, initial=0, to_write=True)
 
             i9 = Variable('i9', dtype=np.int32, initial=0, to_write=True)
-            ts9 = Variable('ts9', dtype=np.int32, initial=0, to_write=True)
-            dt9 = Variable('dt9', dtype=np.int32, initial=0, to_write=True)
+            ts9 = Variable('ts9', dtype=np.int16, initial=0, to_write=True)
+            dt9 = Variable('dt9', dtype=np.int16, initial=0, to_write=True)
 
             i10 = Variable('i10', dtype=np.int32, initial=0, to_write=True)
-            ts10 = Variable('ts10', dtype=np.int32, initial=0, to_write=True)
-            dt10 = Variable('dt10', dtype=np.int32, initial=0, to_write=True)
+            ts10 = Variable('ts10', dtype=np.int16, initial=0, to_write=True)
+            dt10 = Variable('dt10', dtype=np.int16, initial=0, to_write=True)
 
             i11 = Variable('i11', dtype=np.int32, initial=0, to_write=True)
-            ts11 = Variable('ts11', dtype=np.int32, initial=0, to_write=True)
-            dt11 = Variable('dt11', dtype=np.int32, initial=0, to_write=True)
+            ts11 = Variable('ts11', dtype=np.int16, initial=0, to_write=True)
+            dt11 = Variable('dt11', dtype=np.int16, initial=0, to_write=True)
 
             i12 = Variable('i12', dtype=np.int32, initial=0, to_write=True)
-            ts12 = Variable('ts12', dtype=np.int32, initial=0, to_write=True)
-            dt12 = Variable('dt12', dtype=np.int32, initial=0, to_write=True)
+            ts12 = Variable('ts12', dtype=np.int16, initial=0, to_write=True)
+            dt12 = Variable('dt12', dtype=np.int16, initial=0, to_write=True)
 
             i13 = Variable('i13', dtype=np.int32, initial=0, to_write=True)
-            ts13 = Variable('ts13', dtype=np.int32, initial=0, to_write=True)
-            dt13 = Variable('dt13', dtype=np.int32, initial=0, to_write=True)
+            ts13 = Variable('ts13', dtype=np.int16, initial=0, to_write=True)
+            dt13 = Variable('dt13', dtype=np.int16, initial=0, to_write=True)
 
             i14 = Variable('i14', dtype=np.int32, initial=0, to_write=True)
-            ts14 = Variable('ts14', dtype=np.int32, initial=0, to_write=True)
-            dt14 = Variable('dt14', dtype=np.int32, initial=0, to_write=True)
+            ts14 = Variable('ts14', dtype=np.int16, initial=0, to_write=True)
+            dt14 = Variable('dt14', dtype=np.int16, initial=0, to_write=True)
 
             i15 = Variable('i15', dtype=np.int32, initial=0, to_write=True)
-            ts15 = Variable('ts15', dtype=np.int32, initial=0, to_write=True)
-            dt15 = Variable('dt15', dtype=np.int32, initial=0, to_write=True)
+            ts15 = Variable('ts15', dtype=np.int16, initial=0, to_write=True)
+            dt15 = Variable('dt15', dtype=np.int16, initial=0, to_write=True)
 
             i16 = Variable('i16', dtype=np.int32, initial=0, to_write=True)
-            ts16 = Variable('ts16', dtype=np.int32, initial=0, to_write=True)
-            dt16 = Variable('dt16', dtype=np.int32, initial=0, to_write=True)
+            ts16 = Variable('ts16', dtype=np.int16, initial=0, to_write=True)
+            dt16 = Variable('dt16', dtype=np.int16, initial=0, to_write=True)
 
             i17 = Variable('i17', dtype=np.int32, initial=0, to_write=True)
-            ts17 = Variable('ts17', dtype=np.int32, initial=0, to_write=True)
-            dt17 = Variable('dt17', dtype=np.int32, initial=0, to_write=True)
+            ts17 = Variable('ts17', dtype=np.int16, initial=0, to_write=True)
+            dt17 = Variable('dt17', dtype=np.int16, initial=0, to_write=True)
 
             i18 = Variable('i18', dtype=np.int32, initial=0, to_write=True)
-            ts18 = Variable('ts18', dtype=np.int32, initial=0, to_write=True)
-            dt18 = Variable('dt18', dtype=np.int32, initial=0, to_write=True)
+            ts18 = Variable('ts18', dtype=np.int16, initial=0, to_write=True)
+            dt18 = Variable('dt18', dtype=np.int16, initial=0, to_write=True)
 
             i19 = Variable('i19', dtype=np.int32, initial=0, to_write=True)
-            ts19 = Variable('ts19', dtype=np.int32, initial=0, to_write=True)
-            dt19 = Variable('dt19', dtype=np.int32, initial=0, to_write=True)
+            ts19 = Variable('ts19', dtype=np.int16, initial=0, to_write=True)
+            dt19 = Variable('dt19', dtype=np.int16, initial=0, to_write=True)
 
             ##################################################################
             # TEMPORARY TESTING VARIABLES ####################################
@@ -1176,41 +1177,231 @@ class Experiment():
         # Plot
         plt.hist(pct_diff[np.isfinite(pct_diff)], range=(-2,2), bins=200)
 
+class Output():
+    """
+    Load and reformat output from coralsim
+
+    """
+
+    def __init__(self, root_dir):
+        # Set up a status dictionary so we know the completion status of processes
+        self.status = {'dict': False,
+                       'dataframe': False}
+
+    def generate_dict(self, fh, **kwargs):
+        """
+        Parameters (* are required)
+        ----------
+        kwargs :
+            fh*: File handle for grid file
+            idx_varname*: Variable name for the index grid
+            cf_varname*: Variable name for the coral fraction grid
+            cc_varname*: Variable name for the coral cover grid
+
+        """
+
+        if not all (key in kwargs.keys() for key in ['idx_varname', 'cf_varname', 'cc_varname', 'grp_varname']):
+            raise KeyError('Must ensure that variable names for index, coral fraction and coral fraction grids have been supplied')
+
+        with Dataset(fh, mode='r') as nc:
+            self.coral_frac_grid = nc.variables[kwargs['cf_varname']][:]
+            self.coral_cover_grid = nc.variables[kwargs['cc_varname']][:]
+            self.coral_idx_grid = nc.variables[kwargs['idx_varname']][:]
+            self.coral_grp_grid = nc.variables[kwargs['grp_varname']][:]
+
+        # Find the locations of coral sites
+        idx_list, cf_list, cc_list, grp_list = [], [], [], []
+
+        for (yidx, xidx) in zip(np.ma.nonzero(self.coral_idx_grid)[0],
+                                np.ma.nonzero(self.coral_idx_grid)[1]):
+
+            # Translate index -> cf/cc
+            idx_list.append(self.coral_idx_grid[yidx, xidx])
+            cf_list.append(self.coral_frac_grid[yidx, xidx])
+            cc_list.append(self.coral_cover_grid[yidx, xidx])
+
+        self.cf_dict = dict(zip(idx_list, cf_list))
+        self.cc_dict = dict(zip(idx_list, cc_list))
+        self.cf_dict[0] = -999
+
+        # Create dictionary to translate group -> number of cells in group
+        grp_key, grp_val = np.unique(self.coral_grp_grid.compressed(),return_counts=True)
+        self.num_in_grp_dict = dict(zip(grp_key, grp_val))
+
+        self.status['dict'] = True
 
 
+    def to_dataframe(self, fh_list, **kwargs):
 
+        """
+        Parameters (* are required)
+        ----------
+        kwargs :
+            fh*: File handles to data
+            lm*: Mortality rate for coral larvae
+            ls*: Settling rate for coral larvae
+            dt*: Model time-step (s)
+            lpc*: Number of larvae released per cell
+            rpm*: Number of releases per month
 
+        """
 
+        if not self.status['dict']:
+            raise Exception('Please run generate_dict first')
 
+        if not all (key in kwargs.keys() for key in ['lm', 'ls', 'dt', 'lpc', 'rpm']):
+            raise KeyError('Please ensure that all parameters have been supplied')
 
+        self.dt = kwargs['dt']
+        self.lm = kwargs['lm']
+        self.ls = kwargs['ls']
 
+        dt = self.dt
+        lm = self.lm
+        ls = self.ls
 
+        # Open the first file to find the number of events stored
+        with Dataset(fh_list[0], mode='r') as nc:
+            e_num = 0
+            searching = True
 
+            while searching:
+                try:
+                    nc.variables['i' + str(e_num)]
+                    e_num += 1
+                except:
+                    searching = False
 
+            self.max_events = e_num
 
+        data_list = []
 
+        # Now import all data
+        for fhi, fh in tqdm(enumerate(fh_list[:1]), total=len(fh_list)):
+            with Dataset(fh, mode='r') as nc:
+                e_num = nc.variables['e_num'][:] # Number of events stored per trajectory
+                n_traj = np.shape(e_num)[0] # Number of trajectories in file
 
+                if not n_traj:
+                    # Skip if there are no trajectories stored in file
+                    continue
 
+                # Extract origin date from filename
+                y0 = int(fh.split('/')[-1].split('_')[1])
+                m0 = int(fh.split('/')[-1].split('_')[2])
+                d0 = int(fh.split('/')[-1].split('_')[-1].split('.')[0])
+                t0 = datetime(year=y0, month=m0, day=d0, hour=0)
 
+                # Load all data into memory
+                idx_array = np.zeros((n_traj, self.max_events), dtype=np.uint16)
+                ts0_array = np.zeros((n_traj, self.max_events), dtype=np.uint32)
+                dts_array = np.zeros((n_traj, self.max_events), dtype=np.uint32)
+                idx0_array = np.zeros((n_traj,), dtype=np.uint16)
 
+                cf_array = np.zeros((n_traj, self.max_events), dtype=np.float32)
+                ns_array = np.zeros((n_traj, self.max_events), dtype=np.float32)
 
+                for i in range(self.max_events):
+                    idx_array[:, i] = nc.variables['i' + str(i)][:, 0]
+                    ts0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*dt
+                    dts_array[:, i] = nc.variables['dt' + str(i)][:, 0]*dt
 
+                mask = (idx_array == 0)
 
+                # Load remaining required variables
+                idx0_array = nc.variables['idx0'][:]
 
+            # Now generate an array containing the coral fraction for each index
+            def translate(a, d):
+                # Adapted from Maxim's excellent suggestion:
+                # https://stackoverflow.com/questions/16992713/translate-every-element-in-numpy-array-according-to-key
+                src, values = np.array(list(d.keys()), dtype=np.uint16), np.array(list(d.values()), dtype=np.float32)
+                d_array = np.zeros((src.max()+1), dtype=np.float32)
+                d_array[src] = values
+                return d_array[a]
 
+            cf_array = translate(idx_array, self.cf_dict)
+            cf_array = np.ma.masked_array(cf_array, mask=mask)
 
+            # Now calculate the fractional losses
+            for i in range(self.max_events):
+                if i == 0:
+                    phi = np.zeros((n_traj,), dtype=np.float32)
 
+                coeff = (ls*cf_array[:, i])/(lm+(ls*cf_array[:, i]))
+                n0 = np.exp((-ls*phi)-(ts0_array[:, i]*lm))
+                n1 = np.exp((-ls*(phi+(cf_array[:, i]*dts_array[:, i])))-(lm*(ts0_array[:, i]+dts_array[:, i])))
 
+                ns_array[:, i] = -coeff*(n1-n0)
+                phi = phi + cf_array[:, i]*dts_array[:, i]
 
+            ns_array = np.ma.masked_array(ns_array, mask=mask)
 
+            # From the index array, extract group
+            grp_array = np.floor(idx_array/(2**8)).astype(np.uint8)
+            grp_array = np.ma.masked_array(grp_array, mask=mask)
 
+            # Extract origin group and project
+            grp0 = np.floor(idx0_array/(2**8)).astype(np.uint8)
+            grp0_array = np.zeros_like(idx_array, dtype=np.uint8)
+            grp0_array[:] = grp0
+            grp0_array = np.ma.masked_array(grp0_array, mask=mask)
 
+            # Obtain origin coral cover as a proxy for total larval number and project
+            cc0 = translate(idx0_array, self.cc_dict)
+            cc0_array = np.zeros_like(idx_array, dtype=np.int32)
+            cc0_array[:] = cc0
+            cc0_array = np.ma.masked_array(cc0_array, mask=mask)
+            cc0_array = cc0_array/kwargs['lpc']
 
+            # Obtain number of larvae released in group for larval fraction and project
+            lf0 = translate(grp0_array, self.num_in_grp_dict)
+            lf0_array = np.zeros_like(idx_array, dtype=np.float32)
+            lf0_array[:] = lf0
+            lf0_array = 1/(kwargs['lpc']*kwargs['rpm']*lf0_array)
 
+            # Convert fractional settling larvae to proportion of larvae released from source reef in release month
+            settling_larvae_frac = lf0_array*ns_array
 
+            # Convert fractional settling larvae to absolute number of settling, assuming num_released propto reef area
+            settling_larvae = cc0_array*ns_array
 
+            # Now insert into DataFrame
+            frame = pd.DataFrame(data=grp0_array.compressed(), columns=['source_group'])
+            frame['sink_group'] = grp_array.compressed()
+            frame['settling_larval_frac'] = settling_larvae_frac.compressed()
+            frame['settling_larval_num'] = settling_larvae.compressed()
+            frame['release_year'] = y0
+            frame['release_month'] = m0
+            frame.reset_index(drop=True)
 
+            frame.astype({'settling_larval_num': 'float32',
+                          'release_year': 'int16',
+                          'release_month': 'int8'})
 
+            data_list.append(frame)
+
+        # Concatenate all frames
+        data = pd.concat(data_list, axis=0)
+        data.reset_index(drop=True)
+        self.data = data
+
+        self.status['dataframe'] = True
+
+    def matrix(self, fh):
+        """
+        Parameters (* are required)
+        ----------
+        kwargs :
+            fh*: Output file handle
+            scheme*: Which region to generate a matrix for
+
+        """
+
+        if not self.status['dataframe']:
+            raise Exception('Please run to_dataframe first')
+
+        self.data.to_pickle(fh)
 
 
 
