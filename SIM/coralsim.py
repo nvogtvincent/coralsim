@@ -11,10 +11,12 @@ experiments in OceanParcels.
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
+import matplotlib.colors as colors
+import matplotlib
 import cmasher as cmr
 import pandas as pd
 import cartopy.crs as ccrs
-import matplotlib.ticker as mticker
 import warnings
 from parcels import (Field, FieldSet, ParticleSet, JITParticle, AdvectionRK4,
                      ErrorCode, Variable, DiffusionUniformKh, ParcelsRandom)
@@ -1277,7 +1279,7 @@ class Output():
         data_list = []
 
         # Now import all data
-        for fhi, fh in tqdm(enumerate(fh_list[:1]), total=len(fh_list)):
+        for fhi, fh in tqdm(enumerate(fh_list), total=len(fh_list)):
             with Dataset(fh, mode='r') as nc:
                 e_num = nc.variables['e_num'][:] # Number of events stored per trajectory
                 n_traj = np.shape(e_num)[0] # Number of trajectories in file
@@ -1379,16 +1381,42 @@ class Output():
                           'release_year': 'int16',
                           'release_month': 'int8'})
 
-            data_list.append(frame)
+            if kwargs['matrix']:
+                grp_list = np.array([1, 3, 4, 5, 8, 11, 14, 15, 2, 6, 7, 9, 10, 12, 13, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 16, 22, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38])
+                n_grp = len(grp_list)
 
-        # Concatenate all frames
-        data = pd.concat(data_list, axis=0)
-        data.reset_index(drop=True)
-        self.data = data
+                if fhi == 0:
+                    probability_matrix = np.zeros((n_grp, n_grp), dtype=np.float32)
+                    flux_matrix = np.zeros_like(probability_matrix, dtype=np.float32)
+
+                for i, source_grp in enumerate(grp_list):
+                    for j, sink_grp in enumerate(grp_list):
+                        # Probability of a larva going from source -> sink:
+                        # Sum of settling_larval_frac for source_group == source and
+                        # sink_group == sink
+
+                        # Flux of larvae going from source -> sink:
+                        # Sum of settling larvae for source_group == source and
+                        # sink_group == sink
+
+                        subset = frame.loc[(frame['source_group'] == source_grp) &
+                                           (frame['sink_group'] == sink_grp)].sum()
+
+                        probability_matrix[i, j] += subset['settling_larval_frac']/(len(fh_list))
+                        flux_matrix[i, j] += subset['settling_larval_num']/(len(fh_list)/(12*kwargs['rpm'])) # Convert to flux per year
+
+        #     data_list.append(frame)
+
+        # # Concatenate all frames
+        # data = pd.concat(data_list, axis=0)
+        # data.reset_index(drop=True)
+        # self.data = data
+
+        self.matrix = [probability_matrix, flux_matrix]
 
         self.status['dataframe'] = True
 
-    def matrix(self, fh):
+    def export_matrix(self, fh, **kwargs):
         """
         Parameters (* are required)
         ----------
@@ -1401,8 +1429,126 @@ class Output():
         if not self.status['dataframe']:
             raise Exception('Please run to_dataframe first')
 
-        self.data.to_pickle(fh)
+        if 'scheme' not in kwargs:
+            raise KeyError('Please specify a plotting scheme')
+        elif kwargs['scheme'] not in ['seychelles']:
+            raise KeyError('Scheme not understood')
 
+        if kwargs['scheme'] == 'seychelles':
+            # grp_list = self.data['source_group'].unique()
+            # Reorder group list:
+            # Farquhar Grp (8) | Aldabra Grp (7) | Alphonse Grp (2) | Amirantes (9) | Southern Coral Grp (2) | Inner Islands (10)
+            grp_list = np.array([1, 3, 4, 5, 8, 11, 14, 15, 2, 6, 7, 9, 10, 12, 13, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 16, 22, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38])
+            n_grp = len(grp_list)
+
+            probability_matrix = self.matrix[0]
+            flux_matrix = self.matrix[1]
+
+            # for i, source_grp in enumerate(grp_list):
+            #     for j, sink_grp in enumerate(grp_list):
+            #         # Probability of a larva going from source -> sink:
+            #         # Sum of settling_larval_frac for source_group == source and
+            #         # sink_group == sink
+
+            #         # Flux of larvae going from source -> sink:
+            #         # Sum of settling larvae for source_group == source and
+            #         # sink_group == sink
+
+            #         subset = self.data.loc[(self.data['source_group'] == source_grp) &
+            #                                (self.data['sink_group'] == sink_grp)].sum()
+
+            #         probability_matrix[i, j] = subset['settling_larval_frac']/(12*kwargs['n_years'])
+            #         flux_matrix[i, j] = subset['settling_larval_num']/(kwargs['n_years']) # Convert to flux per year
+
+            f, ax = plt.subplots(1, 1, figsize=(13, 10), constrained_layout=True)
+            font = {'family': 'normal',
+                    'weight': 'normal',
+                    'size': 16,}
+            matplotlib.rc('font', **font)
+
+            # Set up plot
+            axis = np.linspace(0, n_grp, num=n_grp+1)
+            i_coord, j_coord = np.meshgrid(axis, axis)
+            pmatrix = ax.pcolormesh(i_coord, j_coord, probability_matrix, cmap=cmr.gem,
+                                    norm=colors.LogNorm(vmin=1e-10, vmax=1e-2), shading='auto')
+
+            # Adjust plot
+            cax1 = f.add_axes([ax.get_position().x1+0.0,ax.get_position().y0-0.115,0.020,ax.get_position().height+0.231])
+
+            cb1 = plt.colorbar(pmatrix, cax=cax1, pad=0.1)
+            cb1.set_label('Probabiity of connection', size=16)
+
+            ax.set_aspect('equal', adjustable=None)
+            ax.margins(x=-0.01, y=-0.01)
+            ax.xaxis.set_ticks(np.arange(39))
+            ax.xaxis.set_ticklabels([])
+            ax.yaxis.set_ticks(np.arange(39))
+            ax.yaxis.set_ticklabels([])
+            ax.set_xlim([0, 38])
+            ax.set_ylim([0, 38])
+
+            ax.tick_params(color='w', labelcolor='w')
+            for spine in ax.spines.values():
+                spine.set_edgecolor('w')
+
+            # Add dividers
+            for pos in [8, 15, 17, 26, 28, 38]:
+                ax.plot(np.array([pos, pos]), np.array([0, 38]), '-', color='w', linewidth=2)
+                ax.plot(np.array([0, 38]), np.array([pos, pos]), '-', color='w', linewidth=2)
+
+            for spine in cax1.spines.values():
+                spine.set_edgecolor('w')
+
+            plt.savefig(fh, dpi=300, bbox_inches='tight')
+
+
+            # # Add labels
+            # for pos, label in zip([4, 11.5, 16, 21.5, 27, 33],
+            #                       ['Farquhar Grp', 'Aldabra Grp', 'Alphonse Grp',
+            #                        'Amirantes', 'Southern Coral Grp', 'Inner Islands']:
+            #     ax.text()
+
+
+            # plt.xticks([], "", ax=ax)
+            # ax.set_ticks(np.arange(39))
+            # ax.set_xlabel("")
+
+
+
+
+
+
+# f, ax = plt.subplots(1, 1, figsize=(24, 10), constrained_layout=True,
+#                      subplot_kw={'projection': ccrs.PlateCarree()})
+
+# data_crs = ccrs.PlateCarree()
+# coral = ax.pcolormesh(lon_psi_w, lat_psi_w, np.ma.masked_where(coral_grid_w == 0, coral_grid_w)[1:-1, 1:-1],
+#                        norm=colors.LogNorm(vmin=1e2, vmax=1e8), cmap=cmr.flamingo_r, transform=data_crs)
+# ax.pcolormesh(lon_psi_w, lat_psi_w, np.ma.masked_where(lsm_rho_w == 0, 1-lsm_rho_w)[1:-1, 1:-1],
+#               vmin=-2, vmax=1, cmap=cmr.neutral, transform=data_crs)
+
+# gl = ax.gridlines(crs=data_crs, draw_labels=True, linewidth=1, color='gray', linestyle='-')
+# gl.xlocator = mticker.FixedLocator(np.arange(35, 95, 5))
+# gl.ylocator = mticker.FixedLocator(np.arange(-25, 5, 5))
+# gl.ylabels_right = False
+# gl.xlabels_top = False
+
+# ax.set_xlim([34.62, 77.5])
+# ax.set_ylim([-23.5, 0])
+# ax.spines['geo'].set_linewidth(1)
+# ax.set_ylabel('Latitude')
+# ax.set_xlabel('Longitude')
+# ax.set_title('Coral cells on WINDS grid (postproc)')
+
+# cax1 = f.add_axes([ax.get_position().x1+0.07,ax.get_position().y0-0.10,0.015,ax.get_position().height+0.196])
+
+# cb1 = plt.colorbar(oceanc, cax=cax1, pad=0.1)
+# cb1.set_label('Coral surface area in cell (m2)', size=12)
+
+# ax.set_aspect('equal', adjustable=None)
+# ax.margins(x=-0.01, y=-0.01)
+
+# plt.savefig(fh['fig'] + '_WINDS_postproc.png', dpi=300)
 
 
 

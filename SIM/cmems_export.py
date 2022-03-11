@@ -54,8 +54,8 @@ seychelles_output.generate_dict(fh['grid'],
                                 grp_varname='coral_grp_c',)
 
 seychelles_output.to_dataframe(fh['traj'], lm=lm, ls=ls, dt=3600.,
-                               lpc=6400, rpm=3)
+                               lpc=6400, rpm=3, matrix=True)
 
 # seychelles_output.data.to_pickle(fh['out'])
 
-seychelles_output.matrix(scheme='seychelles')
+seychelles_output.export_matrix(fh['fig'], scheme='seychelles', n_years=27)
