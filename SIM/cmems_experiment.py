@@ -13,7 +13,7 @@ from netCDF4 import Dataset, num2date
 from datetime import datetime, timedelta
 from glob import glob
 from sys import argv
-from coralsim import Experiment as Exp
+from coralsim import Experiment
 
 ##############################################################################
 # DEFINE INPUT FILES                                                         #
@@ -33,26 +33,40 @@ fh['currents'] = sorted(glob(dirs['model'] + 'CMEMS_SFC*.nc'))
 fh['grid'] = dirs['grid'] + 'coral_grid.nc'
 fh['traj'] = dirs['traj'] + 'example_trajectory.nc'
 
-# GRID NAMES
-dimensions_grd = {'rho': {'lon': 'lon_rho_c', 'lat': 'lat_rho_c'},
-                  'psi': {'lon': 'lon_psi_c', 'lat': 'lat_psi_c'}}
-dimensions_vel = {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}
-variables_vel = {'U': 'uo', 'V': 'vo'}
+# PARAMETERS
+pn_per_cell = 4
+t0          = datetime(year=1993, month=1, day=1, hour=0)
+dt          = timedelta(hours=1)
+run_time    = timedelta(days=120)
+test        = True
 
-# MODEL PARAMETERS
-particles_per_cell = 6400
-release_year = argv[1]
-release_month = argv[2]
-release_day = 1
+# GRID NAMES
+# dimensions_grd = {'rho': {'lon': 'lon_rho_c', 'lat': 'lat_rho_c'},
+#                   'psi': {'lon': 'lon_psi_c', 'lat': 'lat_psi_c'}}
+# dimensions_vel = {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}
+# variables_vel = {'U': 'uo', 'V': 'vo'}
+
 
 ##############################################################################
 # SET UP EXPERIMENT                                                          #
 ##############################################################################
 
 # Create experiment object
-experiment = Exp(dirs['root'])
+experiment = Experiment()
 
 # Import grid parameters
+experiment.config(dirs, preset='CMEMS')
+experiment.generate_fieldset(interp_method='freeslip')
+experiment.generate_particleset(num=pn_per_cell, t0=t0, filters={'eez': [690]},
+                                competency=timedelta(days=5),
+                                dt=dt, run_time=run_time, test=test,
+                                plot='grp', plot_fh='pos0_sey.png',)
+
+experiment.run()
+
+
+
+
 experiment.import_grid(fh=fh['grid'], grid_type='A', dimensions=dimensions_grd)
 
 # Create particle initial states

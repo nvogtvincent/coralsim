@@ -18,8 +18,9 @@ import cmasher as cmr
 import pandas as pd
 import cartopy.crs as ccrs
 import warnings
+from glob import glob
 from parcels import (Field, FieldSet, ParticleSet, JITParticle, AdvectionRK4,
-                     ErrorCode, Variable, DiffusionUniformKh, ParcelsRandom)
+                     ErrorCode, Variable)
 from netCDF4 import Dataset
 from datetime import timedelta, datetime
 from tqdm import tqdm
@@ -30,363 +31,380 @@ class Experiment():
     Initialise a larval dispersal experiment.
     -----------
     Functions:
-        import_grid
-        import_currents
-        set_release_time:
-        set_release_loc:
-        set_release_params:
-        set_partitions:
-        set_
+        config: register directories and load preset
+        generate_fieldset: generate fieldsets for OceanParcels
+        generate_particleset: generate initial conditions for particles + kernels
+        run: run OceanParcels using the above configuration
     """
 
-    def __init__(self, root_dir):
+    def __init__(self):
         # Set up a status dictionary so we know the completion status of the
         # experiment configuration
 
-        self.status = {'grid': False,
-                       'currents': False,
-                       'release_loc': False,
-                       'release_time': False,
-                       'partitions': False,
-                       'fields': False,
+        self.status = {'config': False,
+                       'fieldset': False,
                        'particleset': False,
-                       'kernels': False,
-                       'run': True}
+                       'run': False}
 
         # Set up dictionaries for various parameters
+        # self.
+        # self.fh = {}
+        # self.params = {}
+
+        # self.root_dir = root_dir
+
+    def config(self, dir_dict, **kwargs):
+        """
+        Set directories for the script and import settings from preset
+
+        Parameters
+        ----------
+        dir_dict : dictionary with 'root', 'grid', 'model', 'fig', and 'traj'
+                   keys
+
+        **kwargs : preset = 'CMEMS' or 'WINDS'
+
+        """
+
+        if not all (key in dir_dict.keys() for key in ['root', 'grid', 'model', 'fig', 'traj']):
+            raise KeyError('Please make sure root, grid, model, fig, and traj directories have been specified.')
+
+        if 'preset' not in kwargs.keys():
+            raise NotImplementedError('Settings must currently be loaded from a preset.')
+
+        # Note on grid types:
+        # A-grid: RHO = U/V velocity defined here. Acts as 'edges' for cells.
+        #         PSI = Must be calculated (as the midpoint between rho points).
+        #               'Tracer' quantities (e.g. groups, coral cover, etc.)
+        #               are defined here.
+        # C-grid: RHO = 'Tracer' quantities (e.g. groups, coral cover, etc.)
+        #               are defined here.
+        #         U == (PSI, RHO) = U velocity defined here
+        #         V == (RHO, PSI) = V velocity defined here
+
+        # List all presets here
+        CMEMS = {
+                 'grid_filename': 'coral_grid.nc',
+                 'model_filenames': 'CMEMS_SFC*.nc',
+
+                 # Variable names for grid file
+                 'grid_cc_varname' : 'coral_cover_c', # Coral cover
+                 'grid_cf_varname' : 'coral_frac_c',  # Coral fraction
+                 'grid_eez_varname': 'coral_eez_c',   # Coral EEZ
+                 'grid_grp_varname': 'coral_grp_c',   # Coral group
+                 'grid_idx_varname': 'coral_idx_c',   # Coral index,
+
+                 # Variable types
+                 'cc_dtype': np.int32,
+                 'cf_dtype': np.float32,
+                 'eez_dtype': np.int16,
+                 'grp_dtype': np.uint8,
+                 'idx_dtype': np.uint16,
+
+                 # Dimension names for grid file
+                 'lon_rho_dimname': 'lon_rho_c',
+                 'lat_rho_dimname': 'lat_rho_c',
+                 'lon_psi_dimname': 'lon_psi_c',
+                 'lat_psi_dimname': 'lat_psi_c',
+
+                 # Variable names for grid file
+                 'u_varname': 'uo',
+                 'v_varname': 'vo',
+
+                 # Dimension names for model data
+                 'lon_dimname': 'longitude',
+                 'lat_dimname': 'latitude',
+
+                 # Grid type
+                 'grid' : 'A'
+                 }
+
+        PRESETS = {'CMEMS': CMEMS}
+
+        if kwargs['preset'] not in PRESETS.keys():
+            raise KeyError('Preset not recognised.')
+
+        self.cfg = PRESETS[kwargs['preset']]
+        self.dirs = dir_dict
         self.fh = {}
-        self.params = {}
 
-        self.root_dir = root_dir
+        self.status['config': True]
 
-    def import_grid(self, **kwargs):
+    def generate_fieldset(self, **kwargs):
         """
-        Imports the coordinate axes (rho and psi) from grid file
+        Generate the FieldSet object for OceanParcels
 
-        Parameters (* are required)
+        Parameters
         ----------
-        kwargs :
-            fh* : File handle to grid netcdf file (if not already passed)
-            grid_type* : 'C' or 'A' (C-grid or A-grid')
-            dimensions* : Dict containing dimension names for the grid in the
-                          following format:
-
-                              A-GRID:
-                              {'lon': LON_NAME,
-                               'lat': LAT_NAME}
-
-                              C-GRID:
-                              {'rho': {'lon': LON_RHO_NAME,
-                                       'lat': LAT_RHO_NAME},
-                               'psi': {'lon': LON_PSI_NAME,
-                                       'lat': LAT_PSI_NAME}}
+        **kwargs : interp_method = 'freeslip' or 'linear'
 
         """
 
-        if not all (key in kwargs.keys() for key in ['grid_type', 'dimensions']):
-            raise KeyError('Please make sure all required arguments are passed')
-        elif 'grid' not in self.fh.keys() and 'fh' in kwargs.keys():
-            self.fh['grid'] = kwargs['fh']
-        elif 'grid' not in self.fh.keys():
-            raise KeyError('Please make sure all required arguments are passed')
+        if not self.status['config']:
+            raise Exception('Please run config first.')
 
-        # Check that grid types and dimensions are supplied correctly
-        if kwargs['grid_type'] in ['C', 'A']:
-            self.params['grid_type'] = kwargs['grid_type']
-            if self.params['grid_type'] == 'C':
-                # Import C-Grid dimension names
-                raise NotImplementedError('C-grids have not been implemented yet!')
-            else:
-                # Import A-Grid dimension names
-                if all (key in kwargs['dimensions'].keys() for key in ['rho', 'psi']):
-                    self.params['dimension_names'] = kwargs['dimensions']
-                elif all (key in kwargs['dimensions'].keys() for key in ['lon', 'lat']):
-                    raise NotImplementedError('Psi grids must currently be present in grid file')
-                    self.params['dimension_names'] = {'rho': kwargs['dimensions']}
-                else:
-                    raise Exception(('Please supply the \'lon\' and \'lat\' '
-                                     'dimension names as a dictionary'))
-        else:
-            raise Exception('Grid type must be \'C\' or \'A\'')
+        # Generate file names
+        self.fh['grid'] = self.dirs['grid'] + self.cfg['grid_filename']
+        self.fh['model'] = sorted(glob(self.dirs['model'] + self.cfg['model_filenames']))
 
-        # Import coordinates for grids
-        if self.params['grid_type'] == 'A':
+        # Import grid axes
+        if self.cfg['grid'] == 'A':
             with Dataset(self.fh['grid'], mode='r') as nc:
-                self.axes = {'rho': {},
-                             'psi': {}}
-                self.axes['rho']['lon'] = np.array(nc.variables[self.params['dimension_names']['rho']['lon']][:])
-                self.axes['rho']['lat'] = np.array(nc.variables[self.params['dimension_names']['rho']['lat']][:])
-                self.axes['rho']['nx'] = len(self.axes['rho']['lon'])
-                self.axes['rho']['ny'] = len(self.axes['rho']['lat'])
+                self.axes['lon_rho'] = np.array(nc.variables[self.cfg['lon_rho_dimname']][:])
+                self.axes['lat_rho'] = np.array(nc.variables[self.cfg['lat_rho_dimname']][:])
+                self.axes['nx_rho'] = len(self.axes['lon_rho'])
+                self.axes['ny_rho'] = len(self.axes['lat_rho'])
 
-                self.axes['psi']['lon'] = np.array(nc.variables[self.params['dimension_names']['psi']['lon']][:])
-                self.axes['psi']['lat'] = np.array(nc.variables[self.params['dimension_names']['psi']['lat']][:])
-                self.axes['psi']['nx'] = len(self.axes['psi']['lon'])
-                self.axes['psi']['ny'] = len(self.axes['psi']['lat'])
+                self.axes['lon_psi'] = np.array(nc.variables[self.cfg['lon_psi_dimname']][:])
+                self.axes['lat_psi'] = np.array(nc.variables[self.cfg['lat_psi_dimname']][:])
+                self.axes['nx_psi'] = len(self.axes['lon_psi'])
+                self.axes['ny_psi'] = len(self.axes['lat_psi'])
+        elif self.cfg['grid'] == 'C':
+            raise NotImplementedError('C-grids have not yet been implemented.')
+        else:
+            raise KeyError('Grid type not understood.')
 
-        self.status['grid'] = True
+        # Import currents
+        if 'interp_method' not in kwargs.keys():
+            print('No interpolation method prescribed for velocities.')
+            print('Setting velocity interpolation method to linear.')
+            print('')
+            self.cfg['interp_method'] = 'linear'
+        elif kwargs['interp_method'] not in ['linear', 'cgrid_velocity', 'freeslip']:
+            raise KeyError('Velocity interpolation method not understood.')
+        else:
+            self.cfg['interp_method'] = kwargs['interp_method']
 
-    def import_currents(self, **kwargs):
+        if self.cfg['grid'] == 'A':
+            self.fieldset = FieldSet.from_netcdf(filenames=self.fh['model'],
+                                                 variables={'U': self.cfg['u_varname'],
+                                                            'v': self.cfg['v_varname']},
+                                                 dimensions={'U': self.cfg['lon_dimname'],
+                                                             'V': self.cfg['lat_dimname']},
+                                                 interp_method={'U': self.cfg['interp_method'],
+                                                                'V': self.cfg['interp_method']},
+                                                 mesh='spherical', allow_time_extrapolation=False)
+        else:
+            raise NotImplementedError('C-grids have not yet been implemented.')
+
+        # Import additional fields
+        if self.cfg['grid'] == 'A':
+            field_list = ['cc', 'cf', 'eez', 'grp', 'idx']
+
+            for field in field_list:
+                field_varname = self.cfg['grid_' + field + '_varname']
+
+                # Firstly verify that dimensions are correct
+                with Dataset(self.fh['grid'], mode='r') as nc:
+                    self.fields[field] = nc.variables[field_varname][:]
+
+                if not np.array_equiv(np.shape(self.fields[field]),
+                                      (self.axes['psi']['ny'], self.axes['psi']['nx'])):
+                    raise Exception('Field ' + field_varname + ' has incorrect dimensions')
+
+                if field in ['cc', 'eez', 'grp', 'idx']:
+                    if np.max(self.fields[field]) > np.iinfo(self.cfg[field + '_dtype']):
+                        raise Exception('Maximum value exceeded in ' + field_varname + '.')
+
+                # Use OceanParcels routine to import field
+                scratch_field = Field.from_netcdf(self.fh['grid'],
+                                                  variable=field,
+                                                  dimensions={'lon': self.cfg['lon_psi_dimname'],
+                                                              'lat': self.cfg['lat_psi_dimname']},
+                                                  interp_method='nearest', mesh='spherical',
+                                                  allow_time_extrapolation=True)
+
+                self.fieldset.add_field(scratch_field)
+
+        else:
+            raise NotImplementedError('C-grids have not yet been implemented.')
+
+        self.status['fieldset'] = True
+
+
+
+    def generate_particleset(self, **kwargs):
+
         """
-        Creates an OceanParcels FieldSet from ocean current data
+        Generate the ParticleSet object for OceanParcels
 
-        Parameters (* are required)
+        Parameters
         ----------
-        kwargs :
-            fh* : File handle/s to current data
-            variables* : Dictionary of variable names (in OceanParcels format)
-            dimensions* : Dictionary of dimension names (in OceanParcels format)
-            interp_method: Parcels interpolation method, otherwise defaults for
-                           A-Grid ('linear') and C-Grid ('cgrid_velocity')
+        **kwargs : num = Number of particles to (aim to) release per cell
+
+                   t0 = Release time for particles (datetime)
+                   competency = Competency period (timedelta)
+                   dt = Model time-step (timedelta)
+                   run_time = Model run-time (timedelta)
+
+                   test = Whether to activate testing kernels (bool)
+
+                   filters = Dict with 'eez' and/or 'grp' keys to enable filter
+                             for release sites
+                   plot = 'grp' or 'eez' or None - plots the specified field if
+                          not None
+                   plot_fh = File handle to save plot under in figures directory
 
         """
 
-        if not all (key in kwargs.keys() for key in ['fh', 'variables', 'dimensions']):
-            raise KeyError('Please make sure all required arguments are passed')
+        if not self.status['fieldset']:
+            raise Exception('Please run fieldset first.')
+
+        # Generate required default values if necessary
+        if 'num' not in kwargs.keys():
+            print('Particle release number not supplied.')
+            print('Setting to default of 100 per cell.')
+            print('')
+            self.cfg['pn'] = 10
         else:
-            self.fh['currents'] = kwargs['fh']
+            self.cfg['pn'] = int(np.ceil(kwargs['num']**0.5))
+            self.cfg['pn2'] = int(self.cfg['pn']**2)
 
-        if 'interp_method' in kwargs:
-            interp_method = kwargs['interp_method']
-        elif self.status['grid']:
-            if self.params['grid_type'] == 'A':
-                interp_method = 'linear'
-            else:
-                interp_method = 'cgrid_velocity'
+            if np.ceil(kwargs['num']**0.5) != kwargs['num']**0.5:
+                print('Particle number per cell is not square.')
+                print('Old particle number: ' + str(kwargs['num']))
+                print('New particle number: ' + str(self.cfg['pn2']))
+                print()
+
+        if 't0' not in kwargs.keys():
+            print('Particle release time not supplied.')
+            print('Setting to default of first time in file.')
+            print('')
+            self.cfg['t0'] = pd.Timestamp(self.fieldset.time_origin.time_origin)
         else:
-            raise Exception('Either specify an interp method, or run import_grid first.')
+            # Check that particle release time provided is not before first
+            # available time in model data
+            model_start = pd.Timestamp(self.fieldset.time_origin.time_origin)
+            if pd.Timestamp(kwargs['t0']) < model_start:
+                print(('Particle release time has been set to ' +
+                       str(pd.Timestamp(kwargs['t0'])) +
+                       ' but model data starts at ' +
+                       str(model_start) + '. Shifting particle start to ' +
+                       str(model_start) + '.'))
 
-        # Create the velocity fieldset
-        self.fieldset = FieldSet.from_netcdf(filenames=kwargs['fh'],
-                                             variables=kwargs['variables'],
-                                             dimensions={'U': kwargs['dimensions'],
-                                                         'V': kwargs['dimensions']},
-                                             interp_method={'U': interp_method,
-                                                            'V': interp_method})
+                self.cfg['t0'] = model_start
 
-        self.status['currents'] = True
-
-    def create_particles(self, **kwargs):
-        """
-        Generates the initial conditions for particles
-
-        Parameters (* are required)
-        ----------
-        kwargs :
-            *fh : File handle to grid netcdf file (if not already present)
-            *num_per_cell : Number of particles to (aim to) initialise per cell
-            eez_filter: List of EEZs to release particles from
-            eez_varname: Variable name of EEZ grid in grid file
-            eez_export: Whether to add EEZs to particle file
-            grp_filter: List of groups to release particles from
-            grp_varname: Variable name of group grid in grid file
-            grp_export: Whether to add groups to particle file
-            *idx_varname: Variable name of the index grid in grid file
-            *idx_export: Whether to add indices to particle file
-            coral_varname: Variable name of coral cover grid in grid file
-            export_coral: Whether to add coral cover to particle file
-            plot: Whether to create a plot of initial particle positions
-            plot_colour: Whether to colour particles by \'grp\' or \'eez\'
-            plot_fh: File handle for plot file
-
-        """
-
-        if not self.status['grid']:
-            raise Exception('Must import grid before particles can be generated!')
-        elif 'num_per_cell' not in kwargs.keys():
-            raise KeyError('Please make sure \'num_per_cell\' has been passed as an argument')
-        elif 'coral_varname' not in kwargs.keys():
-            raise KeyError('Must pass coral_varname as an argument')
-        elif 'idx_varname' not in kwargs.keys():
-            raise KeyError('Must pass idx_varname as an argument')
-
-        if 'export_grp' not in kwargs.keys():
-            kwargs['export_grp'] = False
-
-        if 'export_eez' not in kwargs.keys():
-            kwargs['export_eez'] = False
-
-        if 'export_coral_cover' not in kwargs.keys():
-            kwargs['export_coral_cover'] = False
-
-        if 'eez_filter' not in kwargs.keys():
-            kwargs['eez_filter'] = False
-
-        if 'grp_filter' not in kwargs.keys():
-            kwargs['grp_filter'] = False
-
-        if 'idx_filter' not in kwargs.keys():
-            kwargs['idx_filter'] = False
-
-        # Import EEZ/Group grids if necessary
-        if kwargs['eez_filter'] or kwargs['export_eez']:
-            if 'eez_varname' not in kwargs.keys():
-                raise KeyError('Please give the EEZ variable name if you want to filter by EEZ')
-            with Dataset(self.fh['grid'], mode='r') as nc:
-                eez_grid = nc.variables[kwargs['eez_varname']][:]
-
-            if self.params['grid_type'] == 'A':
-                # Make sure dimensions agree
-                assert np.array_equiv(np.shape(eez_grid), (self.axes['psi']['ny'],
-                                                           self.axes['psi']['nx']))
             else:
-                raise NotImplementedError('C-grids have not been implemented yet!')
+                self.cfg['t0'] = kwargs['t0']
 
-        if kwargs['grp_filter'] or kwargs['export_grp']:
-            if 'grp_varname' not in kwargs.keys():
-                raise KeyError('Please give the group variable name if you want to filter by group')
-            with Dataset(self.fh['grid'], mode='r') as nc:
-                self.params['coral_grp_varname'] = kwargs['grp_varname']
-                grp_grid = nc.variables[kwargs['grp_varname']][:]
-                if np.max(grp_grid) > np.iinfo(np.int16).max:
-                    raise NotImplementedError('Maximum group number currently limited to 255')
-
-            if self.params['grid_type'] == 'A':
-                # Make sure dimensions agree
-                assert np.array_equiv(np.shape(grp_grid), (self.axes['psi']['ny'],
-                                                           self.axes['psi']['nx']))
-            else:
-                raise NotImplementedError('C-grids have not been implemented yet!')
-
-        if kwargs['idx_filter'] or kwargs['export_idx']:
-            if 'idx_varname' not in kwargs.keys():
-                raise KeyError('Please give the index variable name if you want to filter by group')
-            with Dataset(self.fh['grid'], mode='r') as nc:
-                self.params['coral_idx_varname'] = kwargs['idx_varname']
-                idx_grid = nc.variables[kwargs['idx_varname']][:]
-                if np.max(idx_grid) > np.iinfo(np.uint16).max:
-                    raise NotImplementedError('Maximum index number currently limited to 65535')
-
-            if self.params['grid_type'] == 'A':
-                # Make sure dimensions agree
-                assert np.array_equiv(np.shape(idx_grid), (self.axes['psi']['ny'],
-                                                           self.axes['psi']['nx']))
-            else:
-                raise NotImplementedError('C-grids have not been implemented yet!')
-
-        # Import coral mask
-        with Dataset(self.fh['grid'], mode='r') as nc:
-            self.params['coral_cover_varname'] = kwargs['coral_varname']
-            self.coral_grid = nc.variables[kwargs['coral_varname']][:]
-
-        if self.params['grid_type'] == 'A':
-            # Make sure dimensions agree
-            assert np.array_equiv(np.shape(self.coral_grid), (self.axes['psi']['ny'],
-                                                         self.axes['psi']['nx']))
+        if 'filters' not in kwargs.keys():
+            self.cfg['filters'] = None
         else:
-            raise NotImplementedError('C-grids have not been implemented yet!')
+            for filter_name in kwargs['filters'].keys():
+                if filter_name not in ['eez', 'grp']:
+                    raise KeyError('Filter name ' + filter_name + ' not understood.')
 
-        # Build a mask of valid locations
-        coral_mask = (self.coral_grid > 0)
-        if kwargs['eez_filter']:
-            coral_mask *= np.isin(eez_grid, kwargs['eez_filter'])
-        if kwargs['grp_filter']:
-            coral_mask *= np.isin(grp_grid, kwargs['grp_filter'])
+        if 'competency' not in kwargs.keys():
+            print('Competency period not supplied.')
+            print('Setting to default of 5 days.')
+            print('')
+            self.cfg['t0'] = timedelta(days=5)
 
-        nl = int(np.sum(coral_mask)) # Number of sites identified
+        if 'dt' not in kwargs.keys():
+            print('RK4 timestep not supplied.')
+            print('Setting to default of 1 hour.')
+            print('')
+            self.cfg['dt'] = timedelta(hours=1)
 
-        if nl == 0:
-            raise Exception('No valid coral sites found')
+        if 'run_time' not in kwargs.keys():
+            print('Run-time not supplied.')
+            print('Setting to default of 100 days.')
+            print('')
+            self.cfg['run_time'] = timedelta(days=100)
+
+        if 'test' not in kwargs.keys():
+            self.cfg['test'] = False
+
+        if 'plot' not in kwargs.keys():
+            self.cfg['plot'] = False
         else:
-            print(str(nl) + ' coral sites identified.')
+            self.cfg['plot'] = True
+
+            if kwargs['plot'] not in ['grp', 'eez']:
+                raise KeyError('Plot type not understood. Setting to default of EEZ.')
+                self.cfg['plot_type'] = 'grp'
+            else:
+                self.cfg['plot'] = True
+                self.cfg['plot_type'] = kwargs['plot']
+
+            if 'plot_fh' not in kwargs.keys():
+                raise KeyError('Plot type not understood. Setting to \'particle.png\'.')
+                self.fh['fig'] = self.dirs['fig'] + 'particle.png'
+            else:
+                self.fh['fig'] = self.dirs['fig'] + kwargs['plot_fh']
+
+        # Build a mask of valid initial position cells
+        reef_mask = (self.fields['cc'] > 0)
+        self.cfg['nsite_nofilter'] = int(np.sum(reef_mask))
+
+        # Filter if applicable
+        for filter_name in kwargs['filters'].keys():
+            reef_mask *= np.isin(self.fields[filter_name], kwargs['filters']['filterName'])
+
+        # Count number of sites identified
+        self.cfg['nsite'] = int(np.sum(reef_mask))
+
+        if self.cfg['nsite'] == 0:
+            raise Exception('No valid reef sites found')
+        else:
+            print(str(self.cfg['nsite']) + '/' + str(self.cfg['nsite_nofilter'])  + ' reef sites identified.')
             print()
 
-        coral_yidx, coral_xidx = np.where(coral_mask)
+        # Find locations of sites
+        reef_yidx, reef_xidx = np.where(reef_mask)
 
-        # Calculate the number of particles to release per cell (if not square)
-        self.params['pn'] = int(np.ceil(kwargs['num_per_cell']**0.5))
-        self.params['pn2'] = int(self.params['pn']**2)
+        # Generate meshgrids
+        lon_rho_grid, lat_rho_grid = np.meshgrid(self.axes['lon_rho'],
+                                                 self.axes['lat_rho'])
+        lon_psi_grid, lat_psi_grid = np.meshgrid(self.axes['lon_psi'],
+                                                 self.axes['lat_psi'])
 
-        if np.ceil(kwargs['num_per_cell']**0.5) != kwargs['num_per_cell']**0.5:
-            print('Particle number per cell is not square.')
-            print('Old particle number: ' + str(kwargs['num_per_cell']))
-            print('New particle number: ' + str(int(self.params['pn']**2)))
-            print()
-
-        # Build a list of initial particle locations
-        lon_rho_grid, lat_rho_grid = np.meshgrid(self.axes['rho']['lon'],
-                                                 self.axes['rho']['lat'])
-        lon_psi_grid, lat_psi_grid = np.meshgrid(self.axes['psi']['lon'],
-                                                 self.axes['psi']['lat'])
-
-        particles = {} # Dictionary to hold initial particle properties
-        particles['lon'] = np.zeros((nl*self.params['pn2'],), dtype=np.float64)
-        particles['lat'] = np.zeros((nl*self.params['pn2'],), dtype=np.float64)
+        # Generate dictionary to hold initial particle properties
+        particles = {}
+        particles['lon'] = np.zeros((self.cfg['nsite']*self.cfg['pn2'],), dtype=np.float64)
+        particles['lat'] = np.zeros((self.cfg['nsite']*self.cfg['pn2'],), dtype=np.float64)
 
         print(str(len(particles['lon'])) + ' particles generated.')
+        print()
 
-        if kwargs['export_coral_cover']:
-            if np.max(self.coral_grid) < np.iinfo(np.int32).max:
-                particles['coral_cover'] = np.zeros((nl*self.params['pn2'],),
-                                                    dtype=np.int32)
-            else:
-                particles['coral_cover'] = np.zeros((nl*self.params['pn2'],),
-                                                    dtype=np.int64)
-        if kwargs['export_eez']:
-            if np.max(eez_grid) < np.iinfo(np.int16).max:
-                particles['eez'] = np.zeros((nl*self.params['pn2'],),
-                                            dtype=np.int16)
-            else:
-                particles['eez'] = np.zeros((nl*self.params['pn2'],),
-                                             dtype=np.int16)
+        # Now initialise particle properties
+        field_list = ['cc', 'cf', 'eez', 'grp', 'idx']
 
-        if kwargs['export_grp']:
-            if np.max(grp_grid) < np.iinfo(np.int16).max:
-                particles['grp'] = np.zeros((nl*self.params['pn2'],),
-                                            dtype=np.int16)
-            else:
-                particles['grp'] = np.zeros((nl*self.params['pn2'],),
-                                            dtype=np.int16)
+        for field in field_list:
+            particles[field] = np.zeros((self.cfg['nsite']*self.cfg['pn2'],),
+                                        dtype=self.cfg[field + '_dtype'])
 
-        if np.max(idx_grid) < np.iinfo(np.int16).max:
-            particles['idx'] = np.zeros((nl*self.params['pn2'],),
-                                        dtype=np.int16)
-        else:
-            particles['idx'] = np.zeros((nl*self.params['pn2'],),
-                                        dtype=np.int16)
-
-        if self.params['grid_type'] == 'A':
+        # Now evaluate each particle initial condition
+        if self.cfg['grid'] == 'A':
             # For cell psi[i, j], the surrounding rho cells are:
             # rho[i, j]     (SW)
             # rho[i, j+1]   (SE)
             # rho[i+1, j]   (NW)
             # rho[i+1, j+1] (NE)
 
-            for k, (i, j) in enumerate(zip(coral_yidx, coral_xidx)):
+            for k, (i, j) in enumerate(zip(reef_yidx, reef_xidx)):
                 # Firstly calculate the basic particle grid (may be variable for
                 # curvilinear grids)
 
                 dX = lon_rho_grid[i, j+1] - lon_rho_grid[i, j] # Grid spacing
                 dY = lat_rho_grid[i+1, j] - lat_rho_grid[i, j] # Grid spacing
-                dx = dX/self.params['pn']                      # Particle spacing
-                dy = dY/self.params['pn']                      # Particle spacing
+                dx = dX/self.cfg['pn']                         # Particle spacing
+                dy = dY/self.cfg['pn']                         # Particle spacing
 
                 gx = np.linspace(lon_rho_grid[i, j]+(dx/2),    # Particle x locations
-                                 lon_rho_grid[i, j+1]-(dx/2), num=self.params['pn'])
+                                 lon_rho_grid[i, j+1]-(dx/2), num=self.cfg['pn'])
 
                 gy = np.linspace(lat_rho_grid[i, j]+(dy/2),    # Particle y locations
-                                 lat_rho_grid[i+1, j]-(dy/2), num=self.params['pn'])
+                                 lat_rho_grid[i+1, j]-(dy/2), num=self.cfg['pn'])
 
                 gx, gy = [grid.flatten() for grid in np.meshgrid(gx, gy)] # Flattened arrays
 
-                particles['lon'][k*self.params['pn2']:(k+1)*self.params['pn2']] = gx
-                particles['lat'][k*self.params['pn2']:(k+1)*self.params['pn2']] = gy
+                particles['lon'][k*self.cfg['pn2']:(k+1)*self.cfg['pn2']] = gx
+                particles['lat'][k*self.cfg['pn2']:(k+1)*self.cfg['pn2']] = gy
 
-                if kwargs['export_coral_cover']:
-                    coral_cover_k = self.coral_grid[i, j]
-                    particles['coral_cover'][k*self.params['pn2']:(k+1)*self.params['pn2']] = coral_cover_k
-
-                if kwargs['export_eez']:
-                    eez_k = eez_grid[i, j]
-                    particles['eez'][k*self.params['pn2']:(k+1)*self.params['pn2']] = eez_k
-
-                if kwargs['export_grp']:
-                    grp_k = grp_grid[i, j]
-                    particles['grp'][k*self.params['pn2']:(k+1)*self.params['pn2']] = grp_k
-
-                if kwargs['export_idx']:
-                    idx_k = idx_grid[i, j]
-                    particles['idx'][k*self.params['pn2']:(k+1)*self.params['pn2']] = idx_k
+                for field in field_list:
+                    value_k = self.fields[field][i, j]
+                    particles[field][k*self.cfg['pn2']:(k+1)*self.cfg['pn2']] = value_k
 
         else:
             raise NotImplementedError('C-grids have not been implemented yet!')
@@ -395,37 +413,18 @@ class Experiment():
         particles_df = pd.DataFrame({'lon': particles['lon'],
                                      'lat': particles['lat']})
 
-        if kwargs['export_coral_cover']:
-            particles_df['coral_cover'] = particles['coral_cover']
+        for field in field_list:
+            particles_df[field] = particles[field]
 
-        if kwargs['export_eez']:
-            particles_df['eez'] = particles['eez']
+        # Now add release times
+        particles_df['t0'] = self.cfg['t0']
 
-        if kwargs['export_grp']:
-            particles_df['grp'] = particles['grp']
-
-        particles_df['idx'] = particles['idx']
-
+        # Export
         self.particles = particles_df
 
         # Now plot (if wished)
-        kwargs['plot'] = False if 'plot' not in kwargs.keys() else kwargs['plot']
-
-        if kwargs['plot']:
-            # Create a plot of initial particle positions
-            kwargs['plot_colour'] = None if 'plot_colour' not in kwargs.keys() else kwargs['plot_colour']
-            if kwargs['plot_colour'] == 'grp':
-                if kwargs['export_grp']:
-                    colour_series = particles['grp']
-                else:
-                    raise Exception('Cannot plot by group if group is not exported ')
-            elif kwargs['plot_colour'] == 'eez':
-                if kwargs['export_eez']:
-                    colour_series = particles['eez']
-                else:
-                    raise Exception('Cannot plot by group if EEZ is not exported ')
-            else:
-                colour_series = 'k'
+        if self.cfg['plot']:
+            colour_series = particles[self.cfg['plot_type']]
 
             plot_x_range = np.max(particles['lon']) - np.min(particles['lon'])
             plot_y_range = np.max(particles['lat']) - np.min(particles['lat'])
@@ -452,97 +451,25 @@ class Experiment():
             gl.xlabels_top = False
             gl.ylabels_right = False
 
-            if 'plot_fh' in kwargs.keys():
-                plot_fh = kwargs['plot_fh']
-            else:
-                warnings.warn('No plotting fh given, saving to script directory')
-                plot_fh = self.root_dir + 'initial_particle_positions.png'
-
-            plt.savefig(plot_fh, dpi=300)
+            plt.savefig(self.fh['fig'], dpi=300)
             plt.close()
 
-        self.status['release_loc'] = True
+        self.status['particleset'] = True
 
-    def add_release_time(self, time):
-        """
-        Parameters (* are required)
-        ----------
-        kwargs :
-            time* : Release time for particles (datetime)
 
-        """
-        if not self.status['release_loc']:
-            raise Exception('Must generate particles first before times can be assigned')
-        elif type(time) != datetime:
-            raise Exception('Input time must be a python datetime object')
 
-        if self.status['currents']:
-            model_start = pd.Timestamp(self.fieldset.time_origin.time_origin)
-            particle_start = pd.Timestamp(time)
 
-            if particle_start < model_start:
-                warnings.warn(('Particles have been initialised at ' +
-                               str(particle_start) + ' but model data starts at ' +
-                               str(model_start) + '. Shifting particle start to' +
-                               ' model start'))
-                time = model_start
-        else:
-            warnings.warn(('Currents have not been imported yet: cannot check '
-                           'whether particle release time is within simulation '
-                           'timespan.'))
 
-        self.particles['release_time'] = time
 
-        self.status['release_time'] = True
 
-    def add_fields(self, fields):
-        """
-        Parameters (* are required)
-        ----------
-        kwargs :
-            fields* : Dictionary of TRACER fields in grid file to add to fieldset
-                      At present, the following keys are required:
-                          'idx': Coral groups
-                          'coral_frac' Coral fraction
-                      The following keys are optional:
-                          'coral_cover': Coral cover
 
-        """
 
-        if not self.status['currents']:
-            raise Exception('Must generate fieldset first with \'import_currents\'')
 
-        if not all (key in fields.keys() for key in ['idx', 'coral_fraction']):
-            raise KeyError('Please make sure all required fields are given')
-        else:
-            self.params['idx_varname'] = fields['idx']
-            self.params['coral_fraction_varname'] = fields['coral_fraction']
 
-        if self.params['idx_varname'] != 'coral_idx_c' or self.params['coral_fraction_varname'] != 'coral_frac_c':
-            raise NotImplementedError('Groups variable must currently be coral_idx_c and coral fraction variable coral_frac_c')
 
-        if self.params['grid_type'] == 'A':
-            for field in fields.values():
-                # Firstly check that the field has the correct dimensions (i.e. PSI for A-Grid)
-                with Dataset(self.fh['grid'], mode='r') as nc:
-                    temp_field = nc.variables[field][:]
-                    if not np.array_equiv(np.shape(temp_field),
-                                          (self.axes['psi']['ny'], self.axes['psi']['nx'])):
-                        raise Exception('Field ' + str(field) + ' has incorrect dimensions')
 
-                if 'psi' not in self.params['dimension_names']:
-                    raise NotImplementedError('Psi grid must currently still be supplied in netcdf file')
 
-                temp_field = Field.from_netcdf(self.fh['grid'],
-                                               variable=field,
-                                               dimensions=self.params['dimension_names']['psi'],
-                                               interp_method='nearest',
-                                               allow_time_extrapolation=True)
-                self.fieldset.add_field(temp_field)
-        else:
-            raise NotImplementedError('C-grids have not been implemented yet!')
 
-        self.status['fields'] = True
 
     def create_particleset(self, **kwargs):
         """
