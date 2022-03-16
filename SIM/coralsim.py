@@ -17,7 +17,6 @@ import matplotlib
 import cmasher as cmr
 import pandas as pd
 import cartopy.crs as ccrs
-import warnings
 from glob import glob
 from parcels import (Field, FieldSet, ParticleSet, JITParticle, AdvectionRK4,
                      ErrorCode, Variable)
@@ -37,6 +36,7 @@ class Experiment():
         run: run OceanParcels using the above configuration
     """
 
+
     def __init__(self):
         # Set up a status dictionary so we know the completion status of the
         # experiment configuration
@@ -52,6 +52,7 @@ class Experiment():
         # self.params = {}
 
         # self.root_dir = root_dir
+
 
     def config(self, dir_dict, **kwargs):
         """
@@ -83,7 +84,7 @@ class Experiment():
         #         V == (RHO, PSI) = V velocity defined here
 
         # List all presets here
-        CMEMS = {
+        CMEMS = {'preset': 'CMEMS',
                  'grid_filename': 'coral_grid.nc',
                  'model_filenames': 'CMEMS_SFC*.nc',
 
@@ -114,6 +115,19 @@ class Experiment():
                  # Dimension names for model data
                  'lon_dimname': 'longitude',
                  'lat_dimname': 'latitude',
+                 'time_dimname': 'time',
+
+                 # Parameters for trajectory testing mode
+                 'rel_lon0': 49.34,
+                 'rel_lon1': 49.34,
+                 'rel_lat0': -12.3,
+                 'rel_lat1': -12.0,
+                 'view_lon0': 47.5,
+                 'view_lon1': 49.5,
+                 'view_lat0': -13.5,
+                 'view_lat1': -11.5,
+                 'test_number': 100,
+                 'lsm_varname': 'lsm_c',
 
                  # Grid type
                  'grid' : 'A'
@@ -128,7 +142,8 @@ class Experiment():
         self.dirs = dir_dict
         self.fh = {}
 
-        self.status['config': True]
+        self.status['config'] = True
+
 
     def generate_fieldset(self, **kwargs):
         """
@@ -148,6 +163,8 @@ class Experiment():
         self.fh['model'] = sorted(glob(self.dirs['model'] + self.cfg['model_filenames']))
 
         # Import grid axes
+        self.axes = {}
+
         if self.cfg['grid'] == 'A':
             with Dataset(self.fh['grid'], mode='r') as nc:
                 self.axes['lon_rho'] = np.array(nc.variables[self.cfg['lon_rho_dimname']][:])
@@ -170,7 +187,7 @@ class Experiment():
             print('Setting velocity interpolation method to linear.')
             print('')
             self.cfg['interp_method'] = 'linear'
-        elif kwargs['interp_method'] not in ['linear', 'cgrid_velocity', 'freeslip']:
+        elif kwargs['interp_method'] not in ['linear', 'cgrid_velocity', 'freeslip', 'partialslip']:
             raise KeyError('Velocity interpolation method not understood.')
         else:
             self.cfg['interp_method'] = kwargs['interp_method']
@@ -178,14 +195,20 @@ class Experiment():
         if self.cfg['grid'] == 'A':
             self.fieldset = FieldSet.from_netcdf(filenames=self.fh['model'],
                                                  variables={'U': self.cfg['u_varname'],
-                                                            'v': self.cfg['v_varname']},
-                                                 dimensions={'U': self.cfg['lon_dimname'],
-                                                             'V': self.cfg['lat_dimname']},
+                                                            'V': self.cfg['v_varname']},
+                                                 dimensions={'U': {'lon': self.cfg['lon_dimname'],
+                                                                   'lat': self.cfg['lat_dimname'],
+                                                                   'time': self.cfg['time_dimname']},
+                                                             'V': {'lon': self.cfg['lon_dimname'],
+                                                                   'lat': self.cfg['lat_dimname'],
+                                                                   'time': self.cfg['time_dimname']}},
                                                  interp_method={'U': self.cfg['interp_method'],
                                                                 'V': self.cfg['interp_method']},
                                                  mesh='spherical', allow_time_extrapolation=False)
         else:
             raise NotImplementedError('C-grids have not yet been implemented.')
+
+        self.fields = {}
 
         # Import additional fields
         if self.cfg['grid'] == 'A':
@@ -199,16 +222,16 @@ class Experiment():
                     self.fields[field] = nc.variables[field_varname][:]
 
                 if not np.array_equiv(np.shape(self.fields[field]),
-                                      (self.axes['psi']['ny'], self.axes['psi']['nx'])):
+                                      (self.axes['ny_psi'], self.axes['nx_psi'])):
                     raise Exception('Field ' + field_varname + ' has incorrect dimensions')
 
                 if field in ['cc', 'eez', 'grp', 'idx']:
-                    if np.max(self.fields[field]) > np.iinfo(self.cfg[field + '_dtype']):
+                    if np.max(self.fields[field]) > np.iinfo(self.cfg[field + '_dtype']).max:
                         raise Exception('Maximum value exceeded in ' + field_varname + '.')
 
                 # Use OceanParcels routine to import field
                 scratch_field = Field.from_netcdf(self.fh['grid'],
-                                                  variable=field,
+                                                  variable=self.cfg['grid_' + str(field) + '_varname'],
                                                   dimensions={'lon': self.cfg['lon_psi_dimname'],
                                                               'lat': self.cfg['lat_psi_dimname']},
                                                   interp_method='nearest', mesh='spherical',
@@ -220,7 +243,6 @@ class Experiment():
             raise NotImplementedError('C-grids have not yet been implemented.')
 
         self.status['fieldset'] = True
-
 
 
     def generate_particleset(self, **kwargs):
@@ -294,31 +316,45 @@ class Experiment():
                 if filter_name not in ['eez', 'grp']:
                     raise KeyError('Filter name ' + filter_name + ' not understood.')
 
-        if 'competency' not in kwargs.keys():
-            print('Competency period not supplied.')
+        if 'competency' in kwargs.keys():
+            self.cfg['competency'] = kwargs['competency']
+        else:
+            print('Minimum competency period not supplied.')
             print('Setting to default of 5 days.')
             print('')
-            self.cfg['t0'] = timedelta(days=5)
+            self.cfg['competency'] = timedelta(days=5)
 
-        if 'dt' not in kwargs.keys():
+        if 'dt' in kwargs.keys():
+            self.cfg['dt'] = kwargs['dt']
+        else:
             print('RK4 timestep not supplied.')
             print('Setting to default of 1 hour.')
             print('')
             self.cfg['dt'] = timedelta(hours=1)
 
-        if 'run_time' not in kwargs.keys():
+        if 'run_time' in kwargs.keys():
+            self.cfg['run_time'] = kwargs['run_time']
+        else:
             print('Run-time not supplied.')
             print('Setting to default of 100 days.')
             print('')
             self.cfg['run_time'] = timedelta(days=100)
 
-        if 'test' not in kwargs.keys():
+        if 'test' in kwargs.keys():
+            if kwargs['test'] in ['kernel', 'traj', False]:
+                if kwargs['test'] in ['kernel', 'traj']:
+                    self.cfg['test'] = True
+                    self.cfg['test_type'] = kwargs['test']
+                else:
+                    self.cfg['test'] = False
+            else:
+                print('Test type not understood. Ignoring test.')
+                self.cfg['test'] = False
+        else:
             self.cfg['test'] = False
 
-        if 'plot' not in kwargs.keys():
-            self.cfg['plot'] = False
-        else:
-            self.cfg['plot'] = True
+        if 'plot' in kwargs.keys():
+            self.cfg['plot'] = kwargs['plot']
 
             if kwargs['plot'] not in ['grp', 'eez']:
                 raise KeyError('Plot type not understood. Setting to default of EEZ.')
@@ -333,13 +369,16 @@ class Experiment():
             else:
                 self.fh['fig'] = self.dirs['fig'] + kwargs['plot_fh']
 
+        else:
+            self.cfg['plot'] = False
+
         # Build a mask of valid initial position cells
         reef_mask = (self.fields['cc'] > 0)
         self.cfg['nsite_nofilter'] = int(np.sum(reef_mask))
 
         # Filter if applicable
         for filter_name in kwargs['filters'].keys():
-            reef_mask *= np.isin(self.fields[filter_name], kwargs['filters']['filterName'])
+            reef_mask *= np.isin(self.fields[filter_name], kwargs['filters'][filter_name])
 
         # Count number of sites identified
         self.cfg['nsite'] = int(np.sum(reef_mask))
@@ -419,11 +458,57 @@ class Experiment():
         # Now add release times
         particles_df['t0'] = self.cfg['t0']
 
-        # Export
+        # Save particles_df to class
         self.particles = particles_df
 
+        # Set up the particle class
+        self.larva = self.build_larva(self.cfg['test'])
+
+        # Override for the trajectory testing mode
+        if self.cfg['test']:
+            if self.cfg['test_type'] == 'traj':
+                # Override the run time (no long run time is needed for
+                # these experiments) and set t0 to first time frame
+                self.cfg['t0'] = model_start
+                self.cfg['run_time'] = timedelta(days=20)
+                # Override all properties with a smaller testing region
+                particles['lon'] = np.linspace(self.cfg['rel_lon0'],
+                                               self.cfg['rel_lon1'],
+                                               num=self.cfg['test_number'])
+                particles['lat'] = np.linspace(self.cfg['rel_lat0'],
+                                               self.cfg['rel_lat1'],
+                                               num=self.cfg['test_number'])
+
+                self.particles = pd.DataFrame({'lon': particles['lon'],
+                                               'lat': particles['lat'],
+                                               't0': self.cfg['t0'],
+                                               'idx': 1})
+
+        # Generate the ParticleSet
+        self.pset = ParticleSet.from_list(fieldset=self.fieldset,
+                                          pclass=self.larva,
+                                          lonlatdepth_dtype=np.float64,
+                                          lon=self.particles['lon'],
+                                          lat=self.particles['lat'],
+                                          time=self.particles['t0'],
+                                          lon0=self.particles['lon'],
+                                          lat0=self.particles['lat'],
+                                          idx0=self.particles['idx'])
+
+        # Add competency period and maximum age to fieldset
+        self.fieldset.add_constant('competency', int(self.cfg['competency']/self.cfg['dt']))
+        self.fieldset.add_constant('max_age', int(self.cfg['run_time']/self.cfg['dt']))
+        assert self.fieldset.max_age < np.iinfo(np.uint16).max
+
+        # Generate kernels
+        self.kernel = (self.pset.Kernel(AdvectionRK4) + self.pset.Kernel(self.build_event_kernel(self.cfg['test'])))
+
+        if self.cfg['test']:
+            self.cfg['test_parameters'] = {'lm': 8e-7,
+                                           'ls': 1e-5}
+
         # Now plot (if wished)
-        if self.cfg['plot']:
+        if self.cfg['plot'] and not self.cfg['test']:
             colour_series = particles[self.cfg['plot_type']]
 
             plot_x_range = np.max(particles['lon']) - np.min(particles['lon'])
@@ -457,654 +542,1063 @@ class Experiment():
         self.status['particleset'] = True
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    def create_particleset(self, **kwargs):
+    def build_larva(self, test):
         """
-        Parameters (* are required)
-        ----------
-        kwargs :
-            test: Whether to run the testing kernels (bool)
-            fh*: File handle for output netcdf
+        This script builds the larva class as a test or operational class based
+        on whether test is True or False
 
         """
 
-        if 'test' not in kwargs:
-            if 'test' not in self.params.keys():
-                self.params['test'] = False
+        if type(test) != bool:
+            raise Exception('Input must be a boolean.')
+
+        if test:
+            class larva(JITParticle):
+
+                ##################################################################
+                # TEMPORARY VARIABLES FOR TRACKING PARTICLE POSITION/STATUS ######
+                ##################################################################
+
+                # idx of current cell (>0 if in any reef cell)
+                idx = Variable('idx',
+                               dtype=np.int32,
+                               initial=0,
+                               to_write=True)
+
+                # Time at sea (Total time steps since spawning)
+                ot  = Variable('ot',
+                               dtype=np.int32,
+                               initial=0,
+                               to_write=False)
+
+                ##################################################################
+                # PROVENANCE IDENTIFIERS #########################################
+                ##################################################################
+
+                # Group of parent reef
+                idx0 = Variable('idx0',
+                                dtype=np.int32,
+                                to_write=True)
+
+                # Original longitude
+                lon0 = Variable('lon0',
+                                dtype=np.float32,
+                                to_write=True)
+
+                # Original latitude
+                lat0 = Variable('lat0',
+                                dtype=np.float32,
+                                to_write=True)
+
+                ##################################################################
+                # TEMPORARY VARIABLES FOR TRACKING SETTLING AT REEF SITES ########
+                ##################################################################
+
+                # Current reef time (record of timesteps spent at current reef cell)
+                # Switch to uint16 if possible!
+                current_reef_ts = Variable('current_reef_ts',
+                                           dtype=np.int16,
+                                           initial=0,
+                                           to_write=False)
+
+                # Current reef t0 (record of arrival time (in timesteps) at current reef)
+                # Switch to uint16 if possible!
+                current_reef_ts0 = Variable('current_reef_ts0',
+                                            dtype=np.int16,
+                                            initial=0,
+                                            to_write=False)
+
+                # Current reef idx (record of the index of the current reef
+                # Switch to uint16 if possible!
+                current_reef_idx = Variable('current_reef_idx',
+                                            dtype=np.int32,
+                                            initial=0.,
+                                            to_write=False)
+
+                ##################################################################
+                # RECORD OF ALL EVENTS ###########################################
+                ##################################################################
+
+                # Number of events
+                e_num = Variable('e_num', dtype=np.int16, initial=0, to_write=True)
+
+                # Event variables (i = idx, t = arrival time(step), dt = time(steps) at reef)
+                i0 = Variable('i0', dtype=np.int32, initial=0, to_write=True)
+                ts0 = Variable('ts0', dtype=np.int16, initial=0, to_write=True)
+                dt0 = Variable('dt0', dtype=np.int16, initial=0, to_write=True)
+
+                i1 = Variable('i1', dtype=np.int32, initial=0, to_write=True)
+                ts1 = Variable('ts1', dtype=np.int16, initial=0, to_write=True)
+                dt1 = Variable('dt1', dtype=np.int16, initial=0, to_write=True)
+
+                i2 = Variable('i2', dtype=np.int32, initial=0, to_write=True)
+                ts2 = Variable('ts2', dtype=np.int16, initial=0, to_write=True)
+                dt2 = Variable('dt2', dtype=np.int16, initial=0, to_write=True)
+
+                i3 = Variable('i3', dtype=np.int32, initial=0, to_write=True)
+                ts3 = Variable('ts3', dtype=np.int16, initial=0, to_write=True)
+                dt3 = Variable('dt3', dtype=np.int16, initial=0, to_write=True)
+
+                i4 = Variable('i4', dtype=np.int32, initial=0, to_write=True)
+                ts4 = Variable('ts4', dtype=np.int16, initial=0, to_write=True)
+                dt4 = Variable('dt4', dtype=np.int16, initial=0, to_write=True)
+
+                i5 = Variable('i5', dtype=np.int32, initial=0, to_write=True)
+                ts5 = Variable('ts5', dtype=np.int16, initial=0, to_write=True)
+                dt5 = Variable('dt5', dtype=np.int16, initial=0, to_write=True)
+
+                i6 = Variable('i6', dtype=np.int32, initial=0, to_write=True)
+                ts6 = Variable('ts6', dtype=np.int16, initial=0, to_write=True)
+                dt6 = Variable('dt6', dtype=np.int16, initial=0, to_write=True)
+
+                i7 = Variable('i7', dtype=np.int32, initial=0, to_write=True)
+                ts7 = Variable('ts7', dtype=np.int16, initial=0, to_write=True)
+                dt7 = Variable('dt7', dtype=np.int16, initial=0, to_write=True)
+
+                i8 = Variable('i8', dtype=np.int32, initial=0, to_write=True)
+                ts8 = Variable('ts8', dtype=np.int16, initial=0, to_write=True)
+                dt8 = Variable('dt8', dtype=np.int16, initial=0, to_write=True)
+
+                i9 = Variable('i9', dtype=np.int32, initial=0, to_write=True)
+                ts9 = Variable('ts9', dtype=np.int16, initial=0, to_write=True)
+                dt9 = Variable('dt9', dtype=np.int16, initial=0, to_write=True)
+
+                i10 = Variable('i10', dtype=np.int32, initial=0, to_write=True)
+                ts10 = Variable('ts10', dtype=np.int16, initial=0, to_write=True)
+                dt10 = Variable('dt10', dtype=np.int16, initial=0, to_write=True)
+
+                i11 = Variable('i11', dtype=np.int32, initial=0, to_write=True)
+                ts11 = Variable('ts11', dtype=np.int16, initial=0, to_write=True)
+                dt11 = Variable('dt11', dtype=np.int16, initial=0, to_write=True)
+
+                i12 = Variable('i12', dtype=np.int32, initial=0, to_write=True)
+                ts12 = Variable('ts12', dtype=np.int16, initial=0, to_write=True)
+                dt12 = Variable('dt12', dtype=np.int16, initial=0, to_write=True)
+
+                i13 = Variable('i13', dtype=np.int32, initial=0, to_write=True)
+                ts13 = Variable('ts13', dtype=np.int16, initial=0, to_write=True)
+                dt13 = Variable('dt13', dtype=np.int16, initial=0, to_write=True)
+
+                i14 = Variable('i14', dtype=np.int32, initial=0, to_write=True)
+                ts14 = Variable('ts14', dtype=np.int16, initial=0, to_write=True)
+                dt14 = Variable('dt14', dtype=np.int16, initial=0, to_write=True)
+
+                i15 = Variable('i15', dtype=np.int32, initial=0, to_write=True)
+                ts15 = Variable('ts15', dtype=np.int16, initial=0, to_write=True)
+                dt15 = Variable('dt15', dtype=np.int16, initial=0, to_write=True)
+
+                i16 = Variable('i16', dtype=np.int32, initial=0, to_write=True)
+                ts16 = Variable('ts16', dtype=np.int16, initial=0, to_write=True)
+                dt16 = Variable('dt16', dtype=np.int16, initial=0, to_write=True)
+
+                i17 = Variable('i17', dtype=np.int32, initial=0, to_write=True)
+                ts17 = Variable('ts17', dtype=np.int16, initial=0, to_write=True)
+                dt17 = Variable('dt17', dtype=np.int16, initial=0, to_write=True)
+
+                i18 = Variable('i18', dtype=np.int32, initial=0, to_write=True)
+                ts18 = Variable('ts18', dtype=np.int16, initial=0, to_write=True)
+                dt18 = Variable('dt18', dtype=np.int16, initial=0, to_write=True)
+
+                i19 = Variable('i19', dtype=np.int32, initial=0, to_write=True)
+                ts19 = Variable('ts19', dtype=np.int16, initial=0, to_write=True)
+                dt19 = Variable('dt19', dtype=np.int16, initial=0, to_write=True)
+
+                ##################################################################
+                # TEMPORARY TESTING VARIABLES ####################################
+                ##################################################################
+
+                # Number of larvae represented by particle
+                N = Variable('N', dtype=np.float32, initial=1., to_write=True)
+
+                # Larvae lost to sites
+                Ns0 = Variable('Ns0', dtype=np.float32, initial=0., to_write=True)
+                Ns1 = Variable('Ns1', dtype=np.float32, initial=0., to_write=True)
+                Ns2 = Variable('Ns2', dtype=np.float32, initial=0., to_write=True)
+                Ns3 = Variable('Ns3', dtype=np.float32, initial=0., to_write=True)
+                Ns4 = Variable('Ns4', dtype=np.float32, initial=0., to_write=True)
+                Ns5 = Variable('Ns5', dtype=np.float32, initial=0., to_write=True)
+                Ns6 = Variable('Ns6', dtype=np.float32, initial=0., to_write=True)
+                Ns7 = Variable('Ns7', dtype=np.float32, initial=0., to_write=True)
+                Ns8 = Variable('Ns8', dtype=np.float32, initial=0., to_write=True)
+                Ns9 = Variable('Ns9', dtype=np.float32, initial=0., to_write=True)
+                Ns10 = Variable('Ns10', dtype=np.float32, initial=0., to_write=True)
+                Ns11 = Variable('Ns11', dtype=np.float32, initial=0., to_write=True)
+                Ns12 = Variable('Ns12', dtype=np.float32, initial=0., to_write=True)
+                Ns13 = Variable('Ns13', dtype=np.float32, initial=0., to_write=True)
+                Ns14 = Variable('Ns14', dtype=np.float32, initial=0., to_write=True)
+                Ns15 = Variable('Ns15', dtype=np.float32, initial=0., to_write=True)
+                Ns16 = Variable('Ns16', dtype=np.float32, initial=0., to_write=True)
+                Ns17 = Variable('Ns17', dtype=np.float32, initial=0., to_write=True)
+                Ns18 = Variable('Ns18', dtype=np.float32, initial=0., to_write=True)
+                Ns19 = Variable('Ns19', dtype=np.float32, initial=0., to_write=True)
+
+                # Number of larvae accumulated in the current reef
+                Ns = Variable('Ns', dtype=np.float32, initial=0., to_write=True)
+                N0 = Variable('N0', dtype=np.float32, initial=0., to_write=True)
+
+                # Reef fraction
+                rf = Variable('rf', dtype=np.float32, initial=0., to_write=True)
         else:
-            self.params['test'] = kwargs['test']
+            class larva(JITParticle):
 
-        if 'fh' not in kwargs:
-            raise KeyError('Filehandle required for output')
-        else:
-            self.fh['traj'] = kwargs['fh']
+                ##################################################################
+                # TEMPORARY VARIABLES FOR TRACKING PARTICLE POSITION/STATUS ######
+                ##################################################################
 
-        class larva(JITParticle):
+                # idx of current cell (>0 if in any reef cell)
+                idx = Variable('idx',
+                               dtype=np.int32,
+                               initial=0,
+                               to_write=True)
 
-            ##################################################################
-            # TEMPORARY VARIABLES FOR TRACKING PARTICLE POSITION/STATUS ######
-            ##################################################################
+                # Time at sea (Total time steps since spawning)
+                ot  = Variable('ot',
+                               dtype=np.int32,
+                               initial=0,
+                               to_write=False)
 
-            # idx of current cell (>0 if in any reef cell)
-            idx = Variable('idx',
-                           dtype=np.int32,
-                           initial=0,
-                           to_write=True)
+                ##################################################################
+                # PROVENANCE IDENTIFIERS #########################################
+                ##################################################################
 
-            # # Reef fraction of current cell (>0 if in any reef cell)
-            # rf = Variable('rf',
-            #               dtype=np.float32,
-            #               initial=0,
-            #               to_write=False)
+                # Group of parent reef
+                idx0 = Variable('idx0',
+                                dtype=np.int32,
+                                to_write=True)
 
-            # Time at sea (Total time steps since spawning)
-            ot  = Variable('ot',
-                           dtype=np.int32,
-                           initial=0,
-                           to_write=False)
+                # Original longitude
+                lon0 = Variable('lon0',
+                                dtype=np.float32,
+                                to_write=True)
 
-            ##################################################################
-            # PROVENANCE IDENTIFIERS #########################################
-            ##################################################################
+                # Original latitude
+                lat0 = Variable('lat0',
+                                dtype=np.float32,
+                                to_write=True)
 
-            # Group of parent reef
-            idx0 = Variable('idx0',
-                            dtype=np.int32,
-                            to_write=True)
+                ##################################################################
+                # TEMPORARY VARIABLES FOR TRACKING SETTLING AT REEF SITES ########
+                ##################################################################
 
-            # Original longitude
-            lon0 = Variable('lon0',
-                            dtype=np.float32,
-                            to_write=True)
+                # Current reef time (record of timesteps spent at current reef cell)
+                # Switch to uint16 if possible!
+                current_reef_ts = Variable('current_reef_ts',
+                                           dtype=np.int16,
+                                           initial=0,
+                                           to_write=False)
 
-            # Original latitude
-            lat0 = Variable('lat0',
-                            dtype=np.float32,
-                            to_write=True)
+                # Current reef t0 (record of arrival time (in timesteps) at current reef)
+                # Switch to uint16 if possible!
+                current_reef_ts0 = Variable('current_reef_ts0',
+                                            dtype=np.int16,
+                                            initial=0,
+                                            to_write=False)
 
-            ##################################################################
-            # TEMPORARY VARIABLES FOR TRACKING SETTLING AT REEF SITES ########
-            ##################################################################
+                # Current reef idx (record of the index of the current reef
+                # Switch to uint16 if possible!
+                current_reef_idx = Variable('current_reef_idx',
+                                            dtype=np.int32,
+                                            initial=0.,
+                                            to_write=False)
 
-            # Current reef time (record of timesteps spent at current reef cell)
-            # Switch to uint16 if possible!
-            current_reef_ts = Variable('current_reef_ts',
-                                       dtype=np.int16,
-                                       initial=0,
-                                       to_write=False)
+                ##################################################################
+                # RECORD OF ALL EVENTS ###########################################
+                ##################################################################
 
-            # Current reef t0 (record of arrival time (in timesteps) at current reef)
-            # Switch to uint16 if possible!
-            current_reef_ts0 = Variable('current_reef_ts0',
-                                        dtype=np.int16,
-                                        initial=0,
-                                        to_write=False)
+                # Number of events
+                e_num = Variable('e_num', dtype=np.int16, initial=0, to_write=True)
 
-            # Current reef idx (record of the index of the current reef
-            # Switch to uint16 if possible!
-            current_reef_idx = Variable('current_reef_idx',
-                                        dtype=np.int32,
-                                        initial=0.,
-                                        to_write=False)
+                # Event variables (i = idx, t = arrival time(step), dt = time(steps) at reef)
+                i0 = Variable('i0', dtype=np.int32, initial=0, to_write=True)
+                ts0 = Variable('ts0', dtype=np.int16, initial=0, to_write=True)
+                dt0 = Variable('dt0', dtype=np.int16, initial=0, to_write=True)
 
-            ##################################################################
-            # RECORD OF ALL EVENTS ###########################################
-            ##################################################################
+                i1 = Variable('i1', dtype=np.int32, initial=0, to_write=True)
+                ts1 = Variable('ts1', dtype=np.int16, initial=0, to_write=True)
+                dt1 = Variable('dt1', dtype=np.int16, initial=0, to_write=True)
 
-            # Number of events
-            e_num = Variable('e_num', dtype=np.int16, initial=0, to_write=True)
+                i2 = Variable('i2', dtype=np.int32, initial=0, to_write=True)
+                ts2 = Variable('ts2', dtype=np.int16, initial=0, to_write=True)
+                dt2 = Variable('dt2', dtype=np.int16, initial=0, to_write=True)
 
-            # Event variables (i = idx, t = arrival time(step), dt = time(steps) at reef)
-            i0 = Variable('i0', dtype=np.int32, initial=0, to_write=True)
-            ts0 = Variable('ts0', dtype=np.int16, initial=0, to_write=True)
-            dt0 = Variable('dt0', dtype=np.int16, initial=0, to_write=True)
+                i3 = Variable('i3', dtype=np.int32, initial=0, to_write=True)
+                ts3 = Variable('ts3', dtype=np.int16, initial=0, to_write=True)
+                dt3 = Variable('dt3', dtype=np.int16, initial=0, to_write=True)
 
-            i1 = Variable('i1', dtype=np.int32, initial=0, to_write=True)
-            ts1 = Variable('ts1', dtype=np.int16, initial=0, to_write=True)
-            dt1 = Variable('dt1', dtype=np.int16, initial=0, to_write=True)
+                i4 = Variable('i4', dtype=np.int32, initial=0, to_write=True)
+                ts4 = Variable('ts4', dtype=np.int16, initial=0, to_write=True)
+                dt4 = Variable('dt4', dtype=np.int16, initial=0, to_write=True)
 
-            i2 = Variable('i2', dtype=np.int32, initial=0, to_write=True)
-            ts2 = Variable('ts2', dtype=np.int16, initial=0, to_write=True)
-            dt2 = Variable('dt2', dtype=np.int16, initial=0, to_write=True)
+                i5 = Variable('i5', dtype=np.int32, initial=0, to_write=True)
+                ts5 = Variable('ts5', dtype=np.int16, initial=0, to_write=True)
+                dt5 = Variable('dt5', dtype=np.int16, initial=0, to_write=True)
 
-            i3 = Variable('i3', dtype=np.int32, initial=0, to_write=True)
-            ts3 = Variable('ts3', dtype=np.int16, initial=0, to_write=True)
-            dt3 = Variable('dt3', dtype=np.int16, initial=0, to_write=True)
+                i6 = Variable('i6', dtype=np.int32, initial=0, to_write=True)
+                ts6 = Variable('ts6', dtype=np.int16, initial=0, to_write=True)
+                dt6 = Variable('dt6', dtype=np.int16, initial=0, to_write=True)
 
-            i4 = Variable('i4', dtype=np.int32, initial=0, to_write=True)
-            ts4 = Variable('ts4', dtype=np.int16, initial=0, to_write=True)
-            dt4 = Variable('dt4', dtype=np.int16, initial=0, to_write=True)
+                i7 = Variable('i7', dtype=np.int32, initial=0, to_write=True)
+                ts7 = Variable('ts7', dtype=np.int16, initial=0, to_write=True)
+                dt7 = Variable('dt7', dtype=np.int16, initial=0, to_write=True)
 
-            i5 = Variable('i5', dtype=np.int32, initial=0, to_write=True)
-            ts5 = Variable('ts5', dtype=np.int16, initial=0, to_write=True)
-            dt5 = Variable('dt5', dtype=np.int16, initial=0, to_write=True)
+                i8 = Variable('i8', dtype=np.int32, initial=0, to_write=True)
+                ts8 = Variable('ts8', dtype=np.int16, initial=0, to_write=True)
+                dt8 = Variable('dt8', dtype=np.int16, initial=0, to_write=True)
 
-            i6 = Variable('i6', dtype=np.int32, initial=0, to_write=True)
-            ts6 = Variable('ts6', dtype=np.int16, initial=0, to_write=True)
-            dt6 = Variable('dt6', dtype=np.int16, initial=0, to_write=True)
+                i9 = Variable('i9', dtype=np.int32, initial=0, to_write=True)
+                ts9 = Variable('ts9', dtype=np.int16, initial=0, to_write=True)
+                dt9 = Variable('dt9', dtype=np.int16, initial=0, to_write=True)
 
-            i7 = Variable('i7', dtype=np.int32, initial=0, to_write=True)
-            ts7 = Variable('ts7', dtype=np.int16, initial=0, to_write=True)
-            dt7 = Variable('dt7', dtype=np.int16, initial=0, to_write=True)
+                i10 = Variable('i10', dtype=np.int32, initial=0, to_write=True)
+                ts10 = Variable('ts10', dtype=np.int16, initial=0, to_write=True)
+                dt10 = Variable('dt10', dtype=np.int16, initial=0, to_write=True)
 
-            i8 = Variable('i8', dtype=np.int32, initial=0, to_write=True)
-            ts8 = Variable('ts8', dtype=np.int16, initial=0, to_write=True)
-            dt8 = Variable('dt8', dtype=np.int16, initial=0, to_write=True)
+                i11 = Variable('i11', dtype=np.int32, initial=0, to_write=True)
+                ts11 = Variable('ts11', dtype=np.int16, initial=0, to_write=True)
+                dt11 = Variable('dt11', dtype=np.int16, initial=0, to_write=True)
 
-            i9 = Variable('i9', dtype=np.int32, initial=0, to_write=True)
-            ts9 = Variable('ts9', dtype=np.int16, initial=0, to_write=True)
-            dt9 = Variable('dt9', dtype=np.int16, initial=0, to_write=True)
+                i12 = Variable('i12', dtype=np.int32, initial=0, to_write=True)
+                ts12 = Variable('ts12', dtype=np.int16, initial=0, to_write=True)
+                dt12 = Variable('dt12', dtype=np.int16, initial=0, to_write=True)
 
-            i10 = Variable('i10', dtype=np.int32, initial=0, to_write=True)
-            ts10 = Variable('ts10', dtype=np.int16, initial=0, to_write=True)
-            dt10 = Variable('dt10', dtype=np.int16, initial=0, to_write=True)
+                i13 = Variable('i13', dtype=np.int32, initial=0, to_write=True)
+                ts13 = Variable('ts13', dtype=np.int16, initial=0, to_write=True)
+                dt13 = Variable('dt13', dtype=np.int16, initial=0, to_write=True)
 
-            i11 = Variable('i11', dtype=np.int32, initial=0, to_write=True)
-            ts11 = Variable('ts11', dtype=np.int16, initial=0, to_write=True)
-            dt11 = Variable('dt11', dtype=np.int16, initial=0, to_write=True)
+                i14 = Variable('i14', dtype=np.int32, initial=0, to_write=True)
+                ts14 = Variable('ts14', dtype=np.int16, initial=0, to_write=True)
+                dt14 = Variable('dt14', dtype=np.int16, initial=0, to_write=True)
 
-            i12 = Variable('i12', dtype=np.int32, initial=0, to_write=True)
-            ts12 = Variable('ts12', dtype=np.int16, initial=0, to_write=True)
-            dt12 = Variable('dt12', dtype=np.int16, initial=0, to_write=True)
+                i15 = Variable('i15', dtype=np.int32, initial=0, to_write=True)
+                ts15 = Variable('ts15', dtype=np.int16, initial=0, to_write=True)
+                dt15 = Variable('dt15', dtype=np.int16, initial=0, to_write=True)
 
-            i13 = Variable('i13', dtype=np.int32, initial=0, to_write=True)
-            ts13 = Variable('ts13', dtype=np.int16, initial=0, to_write=True)
-            dt13 = Variable('dt13', dtype=np.int16, initial=0, to_write=True)
+                i16 = Variable('i16', dtype=np.int32, initial=0, to_write=True)
+                ts16 = Variable('ts16', dtype=np.int16, initial=0, to_write=True)
+                dt16 = Variable('dt16', dtype=np.int16, initial=0, to_write=True)
 
-            i14 = Variable('i14', dtype=np.int32, initial=0, to_write=True)
-            ts14 = Variable('ts14', dtype=np.int16, initial=0, to_write=True)
-            dt14 = Variable('dt14', dtype=np.int16, initial=0, to_write=True)
+                i17 = Variable('i17', dtype=np.int32, initial=0, to_write=True)
+                ts17 = Variable('ts17', dtype=np.int16, initial=0, to_write=True)
+                dt17 = Variable('dt17', dtype=np.int16, initial=0, to_write=True)
 
-            i15 = Variable('i15', dtype=np.int32, initial=0, to_write=True)
-            ts15 = Variable('ts15', dtype=np.int16, initial=0, to_write=True)
-            dt15 = Variable('dt15', dtype=np.int16, initial=0, to_write=True)
+                i18 = Variable('i18', dtype=np.int32, initial=0, to_write=True)
+                ts18 = Variable('ts18', dtype=np.int16, initial=0, to_write=True)
+                dt18 = Variable('dt18', dtype=np.int16, initial=0, to_write=True)
 
-            i16 = Variable('i16', dtype=np.int32, initial=0, to_write=True)
-            ts16 = Variable('ts16', dtype=np.int16, initial=0, to_write=True)
-            dt16 = Variable('dt16', dtype=np.int16, initial=0, to_write=True)
+                i19 = Variable('i19', dtype=np.int32, initial=0, to_write=True)
+                ts19 = Variable('ts19', dtype=np.int16, initial=0, to_write=True)
+                dt19 = Variable('dt19', dtype=np.int16, initial=0, to_write=True)
 
-            i17 = Variable('i17', dtype=np.int32, initial=0, to_write=True)
-            ts17 = Variable('ts17', dtype=np.int16, initial=0, to_write=True)
-            dt17 = Variable('dt17', dtype=np.int16, initial=0, to_write=True)
+        return larva
 
-            i18 = Variable('i18', dtype=np.int32, initial=0, to_write=True)
-            ts18 = Variable('ts18', dtype=np.int16, initial=0, to_write=True)
-            dt18 = Variable('dt18', dtype=np.int16, initial=0, to_write=True)
-
-            i19 = Variable('i19', dtype=np.int32, initial=0, to_write=True)
-            ts19 = Variable('ts19', dtype=np.int16, initial=0, to_write=True)
-            dt19 = Variable('dt19', dtype=np.int16, initial=0, to_write=True)
-
-            ##################################################################
-            # TEMPORARY TESTING VARIABLES ####################################
-            ##################################################################
-
-            # Number of larvae represented by particle
-            # N = Variable('N', dtype=np.float32, initial=1., to_write=True)
-
-            # # Larvae lost to sites
-            # Ns0 = Variable('Ns0', dtype=np.float32, initial=0., to_write=True)
-            # Ns1 = Variable('Ns1', dtype=np.float32, initial=0., to_write=True)
-            # Ns2 = Variable('Ns2', dtype=np.float32, initial=0., to_write=True)
-            # Ns3 = Variable('Ns3', dtype=np.float32, initial=0., to_write=True)
-            # Ns4 = Variable('Ns4', dtype=np.float32, initial=0., to_write=True)
-            # Ns5 = Variable('Ns5', dtype=np.float32, initial=0., to_write=True)
-            # Ns6 = Variable('Ns6', dtype=np.float32, initial=0., to_write=True)
-
-            # # Number of larvae accumulated in the current reef
-            # Ns = Variable('Ns', dtype=np.float32, initial=0., to_write=True)
-            # N0 = Variable('N0', dtype=np.float32, initial=0., to_write=True)
-
-            # # Reef fraction
-            # rf = Variable('rf', dtype=np.float32, initial=0., to_write=True)
-
-        self.pset = ParticleSet.from_list(fieldset=self.fieldset,
-                                          pclass=larva,
-                                          lonlatdepth_dtype=np.float64,
-                                          lon=self.particles['lon'],
-                                          lat=self.particles['lat'],
-                                          time=self.particles['release_time'],
-                                          lon0=self.particles['lon'],
-                                          lat0=self.particles['lat'],
-                                          idx0=self.particles['idx'])
-
-        if not self.params['test']:
-            self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], write_ondelete=True)
-        else:
-            self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], outputdt=timedelta(minutes=30))
-
-        self.status['particleset'] = True
-
-
-    def create_kernels(self, **kwargs):
+    def build_event_kernel(self, test):
         """
-        Parameters (* are required)
-        ----------
-        kwargs :
-            competency_period: Period until which larvae cannot settle (timedelta)
-            diffusion: Either False for no diffusion, or the horizontal diffusivity (m^2/s)
-            dt*: Parcels RK4 timestep (timedelta)
-            run_time*: Total runtime (timedelta)
-            test: Whether to run the testing kernels (bool)
+        This script builds the event kernel as a test or operational kernel based
+        on whether test is True or False
 
         """
 
-        if 'competency_period' in kwargs:
-            self.params['competency_period'] = kwargs['competency_period'].total_seconds()
-        else:
-            warnings.warn('No competency period set')
-            self.params['competency_period'] = 0
+        if type(test) != bool:
+            raise Exception('Input must be a boolean.')
 
-        self.fieldset.add_constant('competency', self.params['competency_period']/kwargs['dt'].total_seconds())
-
-        if 'diffusion' in kwargs:
-            self.params['Kh'] = kwargs['diffusion']
-            if kwargs['diffusion']:
-                raise NotImplementedError('Diffusion not yet implemented')
-        else:
-            self.params['Kh'] = None
-
-        if not all (key in kwargs.keys() for key in ['dt', 'run_time']):
-            raise KeyError('Must supply Parcels RK4 timestep and run time for kernel creation')
-
-        if 'test' not in kwargs:
-            if 'test' not in self.params.keys():
-                self.params['test'] = False
-        else:
-            self.params['test'] = kwargs['test']
-
-        assert kwargs['run_time'].total_seconds()/kwargs['dt'].total_seconds() < np.iinfo(np.uint16).max
-
-        self.fieldset.add_constant('max_age', int((kwargs['run_time'].total_seconds()/kwargs['dt'].total_seconds())-1))
-        self.params['run_time'] = kwargs['run_time']
-        self.params['dt'] = kwargs['dt']
-
-        # TESTING ONLY ############################################
-        self.params['testing'] = {'lm': 8e-7,
-                                  'ls': 1e-5}
-        ###########################################################
-
-        # Controller for managing particle events
-        def event(particle, fieldset, time):
-
-            # TESTING ONLY ############################################
-            # lm = 8e-7
-            # ls = 1e-5
-            ###########################################################
-
-            # 1 Keep track of the amount of time spent at sea
-            particle.ot += 1
-
-            # 2 Assess reef status
-            particle.idx = fieldset.coral_idx_c[particle]
-
-            # TESTING ONLY ############################################
-            # particle.rf = fieldset.coral_frac_c[particle]
-            ###########################################################
-
-            save_event = False
-            new_event = False
-
-            # 3 Trigger event cascade if larva is in a reef site and competency has been reached
-            if particle.idx > 0 and particle.ot > fieldset.competency:
+        if test:
+            def event(particle, fieldset, time):
 
                 # TESTING ONLY ############################################
-                # particle.Ns = particle.Ns + (particle.rf*ls*particle.N*particle.dt)
-                # particle.N0 = particle.rf*ls*particle.N*particle.dt
-                # particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
-                # ###########################################################
+                lm = 8e-7
+                ls = 1e-5
+                ###########################################################
 
-                # Check if an event has already been triggered
-                if particle.current_reef_ts > 0:
+                # 1 Keep track of the amount of time spent at sea
+                particle.ot += 1
 
-                    # Check if we are in the same reef idx as the current event
-                    if particle.idx == particle.current_reef_idx:
+                # 2 Assess reef status
+                particle.idx = fieldset.coral_idx_c[particle]
 
-                        # If contiguous event, just add time and phi
-                        particle.current_reef_ts += 1
+                # TESTING ONLY ############################################
+                particle.rf = fieldset.coral_frac_c[particle]
+                ###########################################################
 
-                        # TESTING ONLY ############################################
-                        # particle.Ns = particle.Ns + (particle.rf*ls*particle.N*particle.dt)
-                        # particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
-                        # particle.N0 = particle.rf*ls*particle.N*particle.dt
-                        ###########################################################
+                save_event = False
+                new_event = False
 
-                        # But also check that the particle isn't about to expire (save if so)
-                        # Otherwise particles hanging around reefs at the end of the simulation
-                        # won't get saved.
+                # 3 Trigger event cascade if larva is in a reef site and competency has been reached
+                if particle.idx > 0 and particle.ot > fieldset.competency:
 
-                        if particle.ot > fieldset.max_age:
+                    # Check if an event has already been triggered
+                    if particle.current_reef_ts > 0:
+
+                        # Check if we are in the same reef idx as the current event
+                        if particle.idx == particle.current_reef_idx:
+
+                            # If contiguous event, just add time and phi
+                            particle.current_reef_ts += 1
+
+                            # TESTING ONLY ############################################
+                            particle.Ns = particle.Ns + (particle.rf*ls*particle.N*particle.dt)
+                            particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
+                            particle.N0 = particle.rf*ls*particle.N*particle.dt
+                            ###########################################################
+
+                            # But also check that the particle isn't about to expire (save if so)
+                            # Otherwise particles hanging around reefs at the end of the simulation
+                            # won't get saved.
+
+                            if particle.ot > fieldset.max_age:
+                                save_event = True
+
+                        else:
+
+                            # TESTING ONLY ############################################
+                            particle.Ns = particle.Ns
+                            particle.N0 = particle.rf*ls*particle.N*particle.dt
+                            particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
+                            ###########################################################
+
+                            # Otherwise, we need to save the old event and create a new event
                             save_event = True
+                            new_event = True
 
                     else:
 
                         # TESTING ONLY ############################################
-                        # particle.Ns = particle.Ns
-                        # particle.N0 = particle.rf*ls*particle.N*particle.dt
-                        # particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
+                        particle.Ns = particle.Ns + (particle.rf*ls*particle.N*particle.dt)
+                        particle.N0 = particle.rf*ls*particle.N*particle.dt
+                        particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
                         ###########################################################
 
-                        # Otherwise, we need to save the old event and create a new event
-                        save_event = True
+                        # If event has not been triggered, create a new event
                         new_event = True
 
                 else:
 
+                    # Otherwise, check if ongoing event has just ended
+                    if particle.current_reef_ts > 0:
+
+                        # TESTING ONLY ############################################
+                        particle.Ns = particle.Ns
+                        particle.N0 = particle.rf*ls*particle.N*particle.dt
+                        particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
+                        ###########################################################
+
+                        save_event = True
+                    else:
+                        # TESTING ONLY ############################################
+                        particle.N  = particle.N - (lm*particle.N*particle.dt)
+                        ###########################################################
+
+
+                if save_event:
+                    # Save current values
+                    # Unfortunately, due to the limited functions allowed in parcels, this
+                    # required an horrendous if-else chain
+
+                    if particle.e_num == 0:
+                        particle.i0 = particle.current_reef_idx
+                        particle.ts0 = particle.current_reef_ts0
+                        particle.dt0 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns0 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 1:
+                        particle.i1 = particle.current_reef_idx
+                        particle.ts1 = particle.current_reef_ts0
+                        particle.dt1 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns1 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 2:
+                        particle.i2 = particle.current_reef_idx
+                        particle.ts2 = particle.current_reef_ts0
+                        particle.dt2 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns2 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 3:
+                        particle.i3 = particle.current_reef_idx
+                        particle.ts3 = particle.current_reef_ts0
+                        particle.dt3 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns3 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 4:
+                        particle.i4 = particle.current_reef_idx
+                        particle.ts4 = particle.current_reef_ts0
+                        particle.dt4 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns4 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 5:
+                        particle.i5 = particle.current_reef_idx
+                        particle.ts5 = particle.current_reef_ts0
+                        particle.dt5 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns5 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 6:
+                        particle.i6 = particle.current_reef_idx
+                        particle.ts6 = particle.current_reef_ts0
+                        particle.dt6 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns6 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 7:
+                        particle.i7 = particle.current_reef_idx
+                        particle.ts7 = particle.current_reef_ts0
+                        particle.dt7 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns7 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 8:
+                        particle.i8 = particle.current_reef_idx
+                        particle.ts8 = particle.current_reef_ts0
+                        particle.dt8 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns8 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 9:
+                        particle.i9 = particle.current_reef_idx
+                        particle.ts9 = particle.current_reef_ts0
+                        particle.dt9 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns9 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 10:
+                        particle.i10 = particle.current_reef_idx
+                        particle.ts10 = particle.current_reef_ts0
+                        particle.dt10 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns10 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 11:
+                        particle.i11 = particle.current_reef_idx
+                        particle.ts11 = particle.current_reef_ts0
+                        particle.dt11 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns11 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 12:
+                        particle.i12 = particle.current_reef_idx
+                        particle.ts12 = particle.current_reef_ts0
+                        particle.dt12 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns12 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 13:
+                        particle.i13 = particle.current_reef_idx
+                        particle.ts13 = particle.current_reef_ts0
+                        particle.dt13 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns13 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 14:
+                        particle.i14 = particle.current_reef_idx
+                        particle.ts14 = particle.current_reef_ts0
+                        particle.dt14 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns14 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 15:
+                        particle.i15 = particle.current_reef_idx
+                        particle.ts15 = particle.current_reef_ts0
+                        particle.dt15 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns15 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 16:
+                        particle.i16 = particle.current_reef_idx
+                        particle.ts16 = particle.current_reef_ts0
+                        particle.dt16 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns16 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 17:
+                        particle.i17 = particle.current_reef_idx
+                        particle.ts17 = particle.current_reef_ts0
+                        particle.dt17 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns17 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 18:
+                        particle.i18 = particle.current_reef_idx
+                        particle.ts18 = particle.current_reef_ts0
+                        particle.dt18 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns18 = particle.Ns
+                        ###########################################################
+                    elif particle.e_num == 19:
+                        particle.i19 = particle.current_reef_idx
+                        particle.ts19 = particle.current_reef_ts0
+                        particle.dt19 = particle.current_reef_ts
+                        # TESTING ONLY ############################################
+                        particle.Ns19 = particle.Ns
+                        ###########################################################
+
+                        particle.delete() # Delete particle, since no more reefs can be saved
+
+                    # Then reset current values to zero
+                    particle.current_reef_idx = 0
+                    particle.current_reef_ts0 = 0
+                    particle.current_reef_ts = 0
+                    # particle.Ns = 0
+
+                    # Add to event number counter
+                    particle.e_num += 1
+
+                if new_event:
+                    # Add status to current (for current event) values
+                    # Timesteps at current reef
+                    particle.current_reef_ts = 1
+
+                    # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
+                    particle.current_reef_ts0 = particle.ot - 1
+
+                    # Current reef group
+                    particle.current_reef_idx = particle.idx
+
                     # TESTING ONLY ############################################
-                    # particle.Ns = particle.Ns + (particle.rf*ls*particle.N*particle.dt)
-                    # particle.N0 = particle.rf*ls*particle.N*particle.dt
-                    # particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
+                    particle.Ns = particle.N0
                     ###########################################################
 
-                    # If event has not been triggered, create a new event
-                    new_event = True
+                # Finally, check if particle needs to be deleted
+                if particle.ot >= fieldset.max_age:
 
+                    # Only delete particles where at least 1 event has been recorded
+                    if particle.e_num > 0:
+                        particle.delete()
+
+        else:
+            def event(particle, fieldset, time):
+
+                # 1 Keep track of the amount of time spent at sea
+                particle.ot += 1
+
+                # 2 Assess reef status
+                particle.idx = fieldset.coral_idx_c[particle]
+
+                save_event = False
+                new_event = False
+
+                # 3 Trigger event cascade if larva is in a reef site and competency has been reached
+                if particle.idx > 0 and particle.ot > fieldset.competency:
+
+                    # Check if an event has already been triggered
+                    if particle.current_reef_ts > 0:
+
+                        # Check if we are in the same reef idx as the current event
+                        if particle.idx == particle.current_reef_idx:
+
+                            # If contiguous event, just add time and phi
+                            particle.current_reef_ts += 1
+
+                            # But also check that the particle isn't about to expire (save if so)
+                            # Otherwise particles hanging around reefs at the end of the simulation
+                            # won't get saved.
+
+                            if particle.ot > fieldset.max_age:
+                                save_event = True
+
+                        else:
+
+                            # Otherwise, we need to save the old event and create a new event
+                            save_event = True
+                            new_event = True
+
+                    else:
+
+                        # If event has not been triggered, create a new event
+                        new_event = True
+
+                else:
+
+                    # Otherwise, check if ongoing event has just ended
+                    if particle.current_reef_ts > 0:
+
+                        save_event = True
+
+                if save_event:
+                    # Save current values
+                    # Unfortunately, due to the limited functions allowed in parcels, this
+                    # required an horrendous if-else chain
+
+                    if particle.e_num == 0:
+                        particle.i0 = particle.current_reef_idx
+                        particle.ts0 = particle.current_reef_ts0
+                        particle.dt0 = particle.current_reef_ts
+                    elif particle.e_num == 1:
+                        particle.i1 = particle.current_reef_idx
+                        particle.ts1 = particle.current_reef_ts0
+                        particle.dt1 = particle.current_reef_ts
+                    elif particle.e_num == 2:
+                        particle.i2 = particle.current_reef_idx
+                        particle.ts2 = particle.current_reef_ts0
+                        particle.dt2 = particle.current_reef_ts
+                    elif particle.e_num == 3:
+                        particle.i3 = particle.current_reef_idx
+                        particle.ts3 = particle.current_reef_ts0
+                        particle.dt3 = particle.current_reef_ts
+                    elif particle.e_num == 4:
+                        particle.i4 = particle.current_reef_idx
+                        particle.ts4 = particle.current_reef_ts0
+                        particle.dt4 = particle.current_reef_ts
+                    elif particle.e_num == 5:
+                        particle.i5 = particle.current_reef_idx
+                        particle.ts5 = particle.current_reef_ts0
+                        particle.dt5 = particle.current_reef_ts
+                    elif particle.e_num == 6:
+                        particle.i6 = particle.current_reef_idx
+                        particle.ts6 = particle.current_reef_ts0
+                        particle.dt6 = particle.current_reef_ts
+                    elif particle.e_num == 7:
+                        particle.i7 = particle.current_reef_idx
+                        particle.ts7 = particle.current_reef_ts0
+                        particle.dt7 = particle.current_reef_ts
+                    elif particle.e_num == 8:
+                        particle.i8 = particle.current_reef_idx
+                        particle.ts8 = particle.current_reef_ts0
+                        particle.dt8 = particle.current_reef_ts
+                    elif particle.e_num == 9:
+                        particle.i9 = particle.current_reef_idx
+                        particle.ts9 = particle.current_reef_ts0
+                        particle.dt9 = particle.current_reef_ts
+                    elif particle.e_num == 10:
+                        particle.i10 = particle.current_reef_idx
+                        particle.ts10 = particle.current_reef_ts0
+                        particle.dt10 = particle.current_reef_ts
+                    elif particle.e_num == 11:
+                        particle.i11 = particle.current_reef_idx
+                        particle.ts11 = particle.current_reef_ts0
+                        particle.dt11 = particle.current_reef_ts
+                    elif particle.e_num == 12:
+                        particle.i12 = particle.current_reef_idx
+                        particle.ts12 = particle.current_reef_ts0
+                        particle.dt12 = particle.current_reef_ts
+                    elif particle.e_num == 13:
+                        particle.i13 = particle.current_reef_idx
+                        particle.ts13 = particle.current_reef_ts0
+                        particle.dt13 = particle.current_reef_ts
+                    elif particle.e_num == 14:
+                        particle.i14 = particle.current_reef_idx
+                        particle.ts14 = particle.current_reef_ts0
+                        particle.dt14 = particle.current_reef_ts
+                    elif particle.e_num == 15:
+                        particle.i15 = particle.current_reef_idx
+                        particle.ts15 = particle.current_reef_ts0
+                        particle.dt15 = particle.current_reef_ts
+                    elif particle.e_num == 16:
+                        particle.i16 = particle.current_reef_idx
+                        particle.ts16 = particle.current_reef_ts0
+                        particle.dt16 = particle.current_reef_ts
+                    elif particle.e_num == 17:
+                        particle.i17 = particle.current_reef_idx
+                        particle.ts17 = particle.current_reef_ts0
+                        particle.dt17 = particle.current_reef_ts
+                    elif particle.e_num == 18:
+                        particle.i18 = particle.current_reef_idx
+                        particle.ts18 = particle.current_reef_ts0
+                        particle.dt18 = particle.current_reef_ts
+                    elif particle.e_num == 19:
+                        particle.i19 = particle.current_reef_idx
+                        particle.ts19 = particle.current_reef_ts0
+                        particle.dt19 = particle.current_reef_ts
+
+                        particle.delete() # Delete particle, since no more reefs can be saved
+
+                    # Then reset current values to zero
+                    particle.current_reef_idx = 0
+                    particle.current_reef_ts0 = 0
+                    particle.current_reef_ts = 0
+                    # particle.Ns = 0
+
+                    # Add to event number counter
+                    particle.e_num += 1
+
+                if new_event:
+                    # Add status to current (for current event) values
+                    # Timesteps at current reef
+                    particle.current_reef_ts = 1
+
+                    # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
+                    particle.current_reef_ts0 = particle.ot - 1
+
+                    # Current reef group
+                    particle.current_reef_idx = particle.idx
+
+                # Finally, check if particle needs to be deleted
+                if particle.ot >= fieldset.max_age:
+
+                    # Only delete particles where at least 1 event has been recorded
+                    if particle.e_num > 0:
+                        particle.delete()
+
+        return event
+
+
+
+    def run(self, **kwargs):
+        """
+        Generate the ParticleSet object for OceanParcels
+
+        Parameters
+        ----------
+        **kwargs : fh = file name for exported netcdf with trajectories
+
+        """
+
+        if not self.status['particleset']:
+            raise Exception('Please run particleset first.')
+
+        if 'fh' in kwargs.keys():
+            self.fh['traj'] = self.dirs['traj'] + kwargs['fh']
+        else:
+            self.fh['traj'] = self.dirs['traj'] + 'example_output.nc'
+            print('No output file handle provided - using defaults.' )
+
+        print('Exporting output to ' + str(self.fh['traj']))
+
+        if self.cfg['test']:
+            if self.cfg['test_type'] == 'kernel':
+                self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], outputdt=timedelta(hours=24))
             else:
-
-                # Otherwise, check if ongoing event has just ended
-                if particle.current_reef_ts > 0:
-
-                    # TESTING ONLY ############################################
-                    # particle.Ns = particle.Ns
-                    # particle.N0 = particle.rf*ls*particle.N*particle.dt
-                    # particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
-                    ###########################################################
-
-                    save_event = True
-                # else:
-                    # TESTING ONLY ############################################
-                    # particle.N  = particle.N - (lm*particle.N*particle.dt)
-                    ###########################################################
-
-
-            if save_event:
-                # Save current values
-                # Unfortunately, due to the limited functions allowed in parcels, this
-                # required an horrendous if-else chain
-
-                if particle.e_num == 0:
-                    particle.i0 = particle.current_reef_idx
-                    particle.ts0 = particle.current_reef_ts0
-                    particle.dt0 = particle.current_reef_ts
-                    # TESTING ONLY ############################################
-                    # particle.Ns0 = particle.Ns
-                    ###########################################################
-                elif particle.e_num == 1:
-                    particle.i1 = particle.current_reef_idx
-                    particle.ts1 = particle.current_reef_ts0
-                    particle.dt1 = particle.current_reef_ts
-                    # TESTING ONLY ############################################
-                    # particle.Ns1 = particle.Ns
-                    ###########################################################
-                elif particle.e_num == 2:
-                    particle.i2 = particle.current_reef_idx
-                    particle.ts2 = particle.current_reef_ts0
-                    particle.dt2 = particle.current_reef_ts
-                    # TESTING ONLY ############################################
-                    # particle.Ns2 = particle.Ns
-                    ###########################################################
-                elif particle.e_num == 3:
-                    particle.i3 = particle.current_reef_idx
-                    particle.ts3 = particle.current_reef_ts0
-                    particle.dt3 = particle.current_reef_ts
-                    # TESTING ONLY ############################################
-                    # particle.Ns3 = particle.Ns
-                    ###########################################################
-                elif particle.e_num == 4:
-                    particle.i4 = particle.current_reef_idx
-                    particle.ts4 = particle.current_reef_ts0
-                    particle.dt4 = particle.current_reef_ts
-                    # TESTING ONLY ############################################
-                    # particle.Ns4 = particle.Ns
-                    ###########################################################
-                elif particle.e_num == 5:
-                    particle.i5 = particle.current_reef_idx
-                    particle.ts5 = particle.current_reef_ts0
-                    particle.dt5 = particle.current_reef_ts
-                    # TESTING ONLY ############################################
-                    # particle.Ns5 = particle.Ns
-                    ###########################################################
-                elif particle.e_num == 6:
-                    particle.i6 = particle.current_reef_idx
-                    particle.ts6 = particle.current_reef_ts0
-                    particle.dt6 = particle.current_reef_ts
-                    # TESTING ONLY ############################################
-                    # particle.Ns6 = particle.Ns
-                    ###########################################################
-                elif particle.e_num == 7:
-                    particle.i7 = particle.current_reef_idx
-                    particle.ts7 = particle.current_reef_ts0
-                    particle.dt7 = particle.current_reef_ts
-                elif particle.e_num == 8:
-                    particle.i8 = particle.current_reef_idx
-                    particle.ts8 = particle.current_reef_ts0
-                    particle.dt8 = particle.current_reef_ts
-                elif particle.e_num == 9:
-                    particle.i9 = particle.current_reef_idx
-                    particle.ts9 = particle.current_reef_ts0
-                    particle.dt9 = particle.current_reef_ts
-                elif particle.e_num == 10:
-                    particle.i10 = particle.current_reef_idx
-                    particle.ts10 = particle.current_reef_ts0
-                    particle.dt10 = particle.current_reef_ts
-                elif particle.e_num == 11:
-                    particle.i11 = particle.current_reef_idx
-                    particle.ts11 = particle.current_reef_ts0
-                    particle.dt11 = particle.current_reef_ts
-                elif particle.e_num == 12:
-                    particle.i12 = particle.current_reef_idx
-                    particle.ts12 = particle.current_reef_ts0
-                    particle.dt12 = particle.current_reef_ts
-                elif particle.e_num == 13:
-                    particle.i13 = particle.current_reef_idx
-                    particle.ts13 = particle.current_reef_ts0
-                    particle.dt13 = particle.current_reef_ts
-                elif particle.e_num == 14:
-                    particle.i14 = particle.current_reef_idx
-                    particle.ts14 = particle.current_reef_ts0
-                    particle.dt14 = particle.current_reef_ts
-                elif particle.e_num == 15:
-                    particle.i15 = particle.current_reef_idx
-                    particle.ts15 = particle.current_reef_ts0
-                    particle.dt15 = particle.current_reef_ts
-                elif particle.e_num == 16:
-                    particle.i16 = particle.current_reef_idx
-                    particle.ts16 = particle.current_reef_ts0
-                    particle.dt16 = particle.current_reef_ts
-                elif particle.e_num == 17:
-                    particle.i17 = particle.current_reef_idx
-                    particle.ts17 = particle.current_reef_ts0
-                    particle.dt17 = particle.current_reef_ts
-                elif particle.e_num == 18:
-                    particle.i18 = particle.current_reef_idx
-                    particle.ts18 = particle.current_reef_ts0
-                    particle.dt18 = particle.current_reef_ts
-                elif particle.e_num == 19:
-                    particle.i19 = particle.current_reef_idx
-                    particle.ts19 = particle.current_reef_ts0
-                    particle.dt19 = particle.current_reef_ts
-
-                    particle.delete() # Delete particle, since no more reefs can be saved
-
-                # Then reset current values to zero
-                particle.current_reef_idx = 0
-                particle.current_reef_ts0 = 0
-                particle.current_reef_ts = 0
-                # particle.Ns = 0
-
-                # Add to event number counter
-                particle.e_num += 1
-
-            if new_event:
-                # Add status to current (for current event) values
-                # Timesteps at current reef
-                particle.current_reef_ts = 1
-
-                # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
-                particle.current_reef_ts0 = particle.ot - 1
-
-                # Current reef group
-                particle.current_reef_idx = particle.idx
-
-                # TESTING ONLY ############################################
-                # particle.Ns = particle.N0
-                ###########################################################
-
-            # Finally, check if particle needs to be deleted
-            if particle.ot >= fieldset.max_age:
-
-                # Only delete particles where at least 1 event has been recorded
-                if particle.e_num > 0:
-                    particle.delete()
-
-
-        self.kernels = (self.pset.Kernel(AdvectionRK4) +
-                        self.pset.Kernel(event))
-
-        self.status['kernels'] = True
-
-    def run(self):
-        """
-        This function runs OceanParcels
-
-        """
+                self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], outputdt=timedelta(hours=2))
+        else:
+            self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], write_ondelete=True)
 
         def deleteParticle(particle, fieldset, time):
             #  Recovery kernel to delete a particle if an error occurs
             particle.delete()
 
-        self.pset.execute(self.kernels,
-                          runtime=self.params['run_time'],
-                          dt=self.params['dt'],
+        # Run the simulation
+        self.pset.execute(self.kernel,
+                          runtime=self.cfg['run_time'],
+                          dt=self.cfg['dt'],
                           recovery={ErrorCode.ErrorOutOfBounds: deleteParticle,
                                     ErrorCode.ErrorInterpolation: deleteParticle},
                           output_file=self.trajectory_file)
 
-
+        # Export trajectory file
         self.trajectory_file.export()
 
         self.status['run'] = True
 
+
+
     def postrun_tests(self):
         """
         This function carries out a test for the accuracy of the events kernels
+        or a close-up look of particle trajectories with respect to the model
+        grid.
+        (Note that this is inefficient legacy code, but it does work)
+
+        The kernel function calculates the 'online' settling numbers from the
+        test event kernel, and compares them to the analytical 'offline'
+        numbers. If the offline analytical form works, the difference between
+        the two should approach 0 as dt approaches 0.
 
         """
 
-        if 'test' not in self.params.keys():
+        if 'test' not in self.cfg.keys():
             raise Exception('Simulation must have been run in testing mode')
-        elif not self.params['test']:
+        elif not self.cfg['test']:
             raise Exception('Simulation must have been run in testing mode')
         elif not self.status['run']:
             raise Exception('Must run the simulation before events can be tested')
 
-        # Create a look-up table to relate cell index to coral reef fraction
-        # Load coral fraction grid
-        with Dataset(self.fh['grid'], mode='r') as nc:
-            self.coral_frac_grid = nc.variables[self.params['coral_fraction_varname']][:]
-            self.coral_cover_grid = nc.variables[self.params['coral_cover_varname']][:]
-            self.coral_idx_grid = nc.variables[self.params['coral_idx_varname']][:]
+        if self.cfg['test_type'] == 'kernel':
+            # Create a look-up table to relate cell index to coral reef fraction
+            yidx_list, xidx_list = np.ma.nonzero(self.fields['idx'])
+            idx_list = []
+            fraction_list = []
 
-        yidx_list, xidx_list = np.ma.nonzero(self.coral_idx_grid)
-        idx_list = []
-        fraction_list = []
+            for (yidx, xidx) in zip(yidx_list, xidx_list):
+                idx_list.append(self.fields['idx'][yidx, xidx])
+                fraction_list.append(self.fields['cf'][yidx, xidx])
 
-        for (yidx, xidx) in zip(yidx_list, xidx_list):
-            idx_list.append(self.coral_idx_grid[yidx, xidx])
-            fraction_list.append(self.coral_frac_grid[yidx, xidx])
+            cf_dict = dict(zip(idx_list, fraction_list))
 
-        cf_dict = dict(zip(idx_list, fraction_list))
+            ls = self.cfg['test_parameters']['ls']
+            lm = self.cfg['test_parameters']['lm']
+            N0 = 1
 
-        ls = self.params['testing']['ls']
-        lm = self.params['testing']['lm']
-        N0 = 1
+            idx_arr = []
+            ts_arr = []
+            dt_arr = []
 
-        idx_arr = []
-        ts_arr = []
-        dt_arr = []
+            Ns_arr = []
+            Ns_pred_arr = []
 
-        Ns_arr = []
-        Ns_pred_arr = []
+            phi_arr = []
+            cf_arr = []
 
-        phi_arr = []
-        cf_arr = []
+            with Dataset(self.fh['traj'], mode='r') as nc:
 
-        with Dataset(self.fh['traj'], mode='r') as nc:
+                e_num = nc.variables['e_num'][:]
+                e_num = e_num[np.ma.notmasked_edges(e_num, axis=1)[1]]
 
-            lon = nc.variables['lon'][:]
-            lat = nc.variables['lat'][:]
+                pn = np.shape(e_num)[0]
 
-            e_num = nc.variables['e_num'][:]
-            e_num = e_num[np.ma.notmasked_edges(e_num, axis=1)[1]]
+                for i in range(19):
+                    idx_arr_temp = nc.variables['i' + str(i)][:]
+                    idx_arr.append(idx_arr_temp[np.ma.notmasked_edges(idx_arr_temp, axis=1)[1]])
 
-            pn = np.shape(lon)[0]
+                    ts_arr_temp = nc.variables['ts' + str(i)][:]
+                    ts_arr.append(ts_arr_temp[np.ma.notmasked_edges(ts_arr_temp, axis=1)[1]])
 
-            for i in range(6):
-                idx_arr_temp = nc.variables['i' + str(i)][:]
-                idx_arr.append(idx_arr_temp[np.ma.notmasked_edges(idx_arr_temp, axis=1)[1]])
+                    dt_arr_temp = nc.variables['dt' + str(i)][:]
+                    dt_arr.append(dt_arr_temp[np.ma.notmasked_edges(dt_arr_temp, axis=1)[1]])
 
-                ts_arr_temp = nc.variables['ts' + str(i)][:]
-                ts_arr.append(ts_arr_temp[np.ma.notmasked_edges(ts_arr_temp, axis=1)[1]])
+                    Ns_arr_temp = nc.variables['Ns' + str(i)][:]
+                    Ns_arr.append(Ns_arr_temp[np.ma.notmasked_edges(Ns_arr_temp, axis=1)[1]])
 
-                dt_arr_temp = nc.variables['dt' + str(i)][:]
-                dt_arr.append(dt_arr_temp[np.ma.notmasked_edges(dt_arr_temp, axis=1)[1]])
+                    Ns_pred_temp = np.zeros_like(Ns_arr_temp[:, 0])
+                    phi_temp = np.zeros_like(Ns_arr_temp[:, 0])
+                    cf_temp = np.zeros_like(Ns_arr_temp[:, 0])
 
-                Ns_arr_temp = nc.variables['Ns' + str(i)][:]
-                Ns_arr.append(Ns_arr_temp[np.ma.notmasked_edges(Ns_arr_temp, axis=1)[1]])
+                    # For each particle, calculate the estimated loss per event using the equation
+                    for j in range(pn):
+                        if e_num[j] > i:
+                            ij_idx = idx_arr[i][j]
+                            ij_cf = cf_dict[ij_idx]
 
-                Ns_pred_temp = np.zeros_like(Ns_arr_temp[:, 0])
-                phi_temp = np.zeros_like(Ns_arr_temp[:, 0])
-                cf_temp = np.zeros_like(Ns_arr_temp[:, 0])
+                            ij_ts0 = ts_arr[i][j]*self.cfg['dt'].total_seconds()
+                            ij_dt = dt_arr[i][j]*self.cfg['dt'].total_seconds()
 
-                # For each particle, calculate the estimated loss per event using the equation
-                for j in range(pn):
-                    if e_num[j] > i:
-                        ij_idx = idx_arr[i][j]
-                        ij_cf = cf_dict[ij_idx]
+                            if i > 0:
+                                ij_phi0 = phi_arr[i-1][j]
+                            else:
+                                ij_phi0 = 0
 
-                        ij_ts0 = ts_arr[i][j]*self.params['dt'].total_seconds()
-                        ij_dt = dt_arr[i][j]*self.params['dt'].total_seconds()
+                            ij_coeff = N0*(ls*ij_cf)/(lm+(ls*ij_cf))
+                            exp1 = np.exp((-ls*(ij_phi0+(ij_cf*ij_dt)))-(lm*(ij_ts0+ij_dt)))
+                            exp0 = np.exp((-ls*ij_phi0)-(ij_ts0*lm))
 
-                        if i > 0:
-                            ij_phi0 = phi_arr[i-1][j]
-                        else:
-                            ij_phi0 = 0
+                            Ns_pred_temp[j] = -ij_coeff*(exp1-exp0)
 
-                        ij_coeff = N0*(ls*ij_cf)/(lm+(ls*ij_cf))
-                        exp1 = np.exp((-ls*(ij_phi0+(ij_cf*ij_dt)))-(lm*(ij_ts0+ij_dt)))
-                        exp0 = np.exp((-ls*ij_phi0)-(ij_ts0*lm))
+                            phi_temp[j] = ij_phi0 + ij_cf*ij_dt
+                            cf_temp[j] = ij_cf
 
-                        Ns_pred_temp[j] = -ij_coeff*(exp1-exp0)
+                    Ns_pred_arr.append(Ns_pred_temp)
+                    phi_arr.append(phi_temp)
+                    cf_arr.append(cf_temp)
 
-                        phi_temp[j] = ij_phi0 + ij_cf*ij_dt
-                        cf_temp[j] = ij_cf
+            # Now calculate the errors
+            Ns_all = np.array(Ns_arr).flatten() # Calculated (exact)
+            Ns_pred_all = np.array(Ns_pred_arr).flatten() # Predicted
 
-                Ns_pred_arr.append(Ns_pred_temp)
-                phi_arr.append(phi_temp)
-                cf_arr.append(cf_temp)
+            # Calculate the difference
+            pct_diff = 100*(Ns_pred_all - Ns_all)/(Ns_all)
 
-        # Now calculate the errors
-        Ns_all = np.array(Ns_arr).flatten() # Calculated (exact)
-        Ns_pred_all = np.array(Ns_pred_arr).flatten() # Predicted
+            # Plot
+            f, ax = plt.subplots(1, 1, figsize=(10, 10))
 
-        # Calculate the difference
-        pct_diff = 100*(Ns_pred_all - Ns_all)/(Ns_all)
+            xarg_max = np.max(np.abs(pct_diff[np.isfinite(pct_diff)]))
+            ax.set_xlim([-xarg_max, xarg_max])
+            ax.set_xlabel('Percentage difference between analytical and online settling fluxes')
+            ax.set_ylabel('Number of events')
+            ax.hist(pct_diff[np.isfinite(pct_diff)], range=(-xarg_max,xarg_max), bins=200, color='k')
 
-        # Plot
-        plt.hist(pct_diff[np.isfinite(pct_diff)], range=(-2,2), bins=200)
+            plt.savefig(self.dirs['fig'] + 'event_accuracy_test.png', dpi=300)
+        else:
+            # Note that this section may need to be rewritten depending on the
+            # minutae of the particular grid being used. Presets for CMEMS and
+            # WINDS are supplied here.
+            # Load the LSM from the grid file
+            with Dataset(self.fh['grid'], mode='r') as nc:
+                self.fields['lsm'] = nc.variables[self.cfg['lsm_varname']][:]
+
+            if self.cfg['preset'] == 'CMEMS':
+                jmin_psi = np.searchsorted(self.axes['lon_psi'], self.cfg['view_lon0']) - 1
+                jmin_psi = 0 if jmin_psi < 0 else jmin_psi
+                jmin_rho = jmin_psi
+                jmax_psi = np.searchsorted(self.axes['lon_psi'], self.cfg['view_lon1'])
+                jmax_rho = jmax_psi + 1
+
+                imin_psi = np.searchsorted(self.axes['lat_psi'], self.cfg['view_lat0']) - 1
+                imin_psi = 0 if imin_psi < 0 else imin_psi
+                imin_rho = imin_psi
+                imax_psi = np.searchsorted(self.axes['lat_psi'], self.cfg['view_lat1'])
+                imax_rho = imax_psi + 1
+
+                disp_lon_rho = self.axes['lon_rho'][jmin_rho:jmax_rho]
+                disp_lat_rho = self.axes['lat_rho'][imin_rho:imax_rho]
+                disp_lon_psi = self.axes['lon_psi'][jmin_psi:jmax_psi]
+                disp_lat_psi = self.axes['lat_psi'][imin_psi:imax_psi]
+
+                disp_lsm_psi = self.fields['lsm'][imin_psi:imax_psi, jmin_psi:jmax_psi]
+
+                with Dataset(self.fh['model'][0], mode='r') as nc:
+                    # Load the time slice corresponding to release (start)
+                    disp_u_rho = nc.variables[self.cfg['u_varname']][0, 0, imin_rho:imax_rho, jmin_rho:jmax_rho]
+                    disp_v_rho = nc.variables[self.cfg['v_varname']][0, 0, imin_rho:imax_rho, jmin_rho:jmax_rho]
+
+                # Plot
+                f, ax = plt.subplots(1, 1, figsize=(10, 10))
+                ax.set_xlim(self.cfg['view_lon0'], self.cfg['view_lon1'])
+                ax.set_ylim(self.cfg['view_lat0'], self.cfg['view_lat1'])
+
+                # Plot the rho grid
+                for i in range(len(disp_lat_rho)):
+                    ax.plot([self.cfg['view_lon0'], self.cfg['view_lon1']],
+                            [disp_lat_rho[i], disp_lat_rho[i]],
+                            'k--', linewidth=0.5)
+
+                for j in range(len(disp_lon_rho)):
+                    ax.plot([disp_lon_rho[j], disp_lon_rho[j]],
+                            [self.cfg['view_lat0'], self.cfg['view_lat1']],
+                            'k--', linewidth=0.5)
+
+                # Plot the lsm_psi mask
+                disp_lon_rho_, disp_lat_rho_ = np.meshgrid(disp_lon_rho, disp_lat_rho)
+                disp_lon_psi_, disp_lat_psi_ = np.meshgrid(disp_lon_psi, disp_lat_psi)
+
+                ax.pcolormesh(disp_lon_rho, disp_lat_rho, disp_lsm_psi, cmap=cmr.copper,
+                              vmin=-0.5, vmax=1.5)
+
+                # Plot the velocity field
+                ax.quiver(disp_lon_rho, disp_lat_rho, disp_u_rho, disp_v_rho)
+
+                # Load the trajectories
+                with Dataset(self.fh['traj'], mode='r') as nc:
+                    plat = nc.variables['lat'][:]
+                    plon = nc.variables['lon'][:]
+
+                for particle in range(np.shape(plat)[0]):
+                    ax.plot(plon[particle, :], plat[particle, :], 'w-', linewidth=0.5)
+
+                plt.savefig(self.dirs['traj'] + 'trajectory_test.png', dpi=300)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 class Output():
     """
