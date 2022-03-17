@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import matplotlib.colors as colors
 import matplotlib
+import math
 import cmasher as cmr
 import pandas as pd
 import cartopy.crs as ccrs
@@ -255,7 +256,7 @@ class Experiment():
         **kwargs : num = Number of particles to (aim to) release per cell
 
                    t0 = Release time for particles (datetime)
-                   competency = Competency period (timedelta)
+                   min_competency = Minimum competency period (timedelta)
                    dt = Model time-step (timedelta)
                    run_time = Model run-time (timedelta)
 
@@ -316,13 +317,13 @@ class Experiment():
                 if filter_name not in ['eez', 'grp']:
                     raise KeyError('Filter name ' + filter_name + ' not understood.')
 
-        if 'competency' in kwargs.keys():
-            self.cfg['competency'] = kwargs['competency']
+        if 'min_competency' in kwargs.keys():
+            self.cfg['min_competency'] = kwargs['min_competency']
         else:
             print('Minimum competency period not supplied.')
-            print('Setting to default of 5 days.')
+            print('Setting to default of 2 days.')
             print('')
-            self.cfg['competency'] = timedelta(days=5)
+            self.cfg['min_competency'] = timedelta(days=2)
 
         if 'dt' in kwargs.keys():
             self.cfg['dt'] = kwargs['dt']
@@ -495,8 +496,14 @@ class Experiment():
                                           lat0=self.particles['lat'],
                                           idx0=self.particles['idx'])
 
-        # Add competency period and maximum age to fieldset
-        self.fieldset.add_constant('competency', int(self.cfg['competency']/self.cfg['dt']))
+        # Stop writing unnecessary variables
+        self.pset.set_variable_write_status('depth', 'False')
+        self.pset.set_variable_write_status('lon', 'False')
+        self.pset.set_variable_write_status('lat', 'False')
+        self.pset.set_variable_write_status('time', 'False')
+
+        # Add minimum competency period and maximum age to fieldset
+        self.fieldset.add_constant('min_competency', int(self.cfg['min_competency']/self.cfg['dt']))
         self.fieldset.add_constant('max_age', int(self.cfg['run_time']/self.cfg['dt']))
         assert self.fieldset.max_age < np.iinfo(np.uint16).max
 
@@ -505,7 +512,9 @@ class Experiment():
 
         if self.cfg['test']:
             self.cfg['test_parameters'] = {'lm': 8e-7,
-                                           'ls': 1e-5}
+                                           'ls': 1e-5,
+                                           'tc': 6e5,
+                                           'k' : 1e-5}
 
         # Now plot (if wished)
         if self.cfg['plot'] and not self.cfg['test']:
@@ -569,7 +578,7 @@ class Experiment():
                 ot  = Variable('ot',
                                dtype=np.int32,
                                initial=0,
-                               to_write=False)
+                               to_write=True)
 
                 ##################################################################
                 # PROVENANCE IDENTIFIERS #########################################
@@ -738,6 +747,10 @@ class Experiment():
 
                 # Reef fraction
                 rf = Variable('rf', dtype=np.float32, initial=0., to_write=True)
+
+                # Competency
+                fc = Variable('fc', dtype=np.float32, initial=0., to_write=True)
+
         else:
             class larva(JITParticle):
 
@@ -749,7 +762,7 @@ class Experiment():
                 idx = Variable('idx',
                                dtype=np.int32,
                                initial=0,
-                               to_write=True)
+                               to_write=False)
 
                 # Time at sea (Total time steps since spawning)
                 ot  = Variable('ot',
@@ -763,7 +776,7 @@ class Experiment():
 
                 # Group of parent reef
                 idx0 = Variable('idx0',
-                                dtype=np.int32,
+                                dtype=np.uint16,
                                 to_write=True)
 
                 # Original longitude
@@ -783,21 +796,21 @@ class Experiment():
                 # Current reef time (record of timesteps spent at current reef cell)
                 # Switch to uint16 if possible!
                 current_reef_ts = Variable('current_reef_ts',
-                                           dtype=np.int16,
+                                           dtype=np.uint16,
                                            initial=0,
                                            to_write=False)
 
                 # Current reef t0 (record of arrival time (in timesteps) at current reef)
                 # Switch to uint16 if possible!
                 current_reef_ts0 = Variable('current_reef_ts0',
-                                            dtype=np.int16,
+                                            dtype=np.uint16,
                                             initial=0,
                                             to_write=False)
 
                 # Current reef idx (record of the index of the current reef
                 # Switch to uint16 if possible!
                 current_reef_idx = Variable('current_reef_idx',
-                                            dtype=np.int32,
+                                            dtype=np.uint16,
                                             initial=0.,
                                             to_write=False)
 
@@ -806,88 +819,88 @@ class Experiment():
                 ##################################################################
 
                 # Number of events
-                e_num = Variable('e_num', dtype=np.int16, initial=0, to_write=True)
+                e_num = Variable('e_num', dtype=np.uint8, initial=0, to_write=True)
 
                 # Event variables (i = idx, t = arrival time(step), dt = time(steps) at reef)
-                i0 = Variable('i0', dtype=np.int32, initial=0, to_write=True)
-                ts0 = Variable('ts0', dtype=np.int16, initial=0, to_write=True)
-                dt0 = Variable('dt0', dtype=np.int16, initial=0, to_write=True)
+                i0 = Variable('i0', dtype=np.uint16, initial=0, to_write=True)
+                ts0 = Variable('ts0', dtype=np.uint16, initial=0, to_write=True)
+                dt0 = Variable('dt0', dtype=np.uint16, initial=0, to_write=True)
 
-                i1 = Variable('i1', dtype=np.int32, initial=0, to_write=True)
-                ts1 = Variable('ts1', dtype=np.int16, initial=0, to_write=True)
-                dt1 = Variable('dt1', dtype=np.int16, initial=0, to_write=True)
+                i1 = Variable('i1', dtype=np.uint16, initial=0, to_write=True)
+                ts1 = Variable('ts1', dtype=np.uint16, initial=0, to_write=True)
+                dt1 = Variable('dt1', dtype=np.uint16, initial=0, to_write=True)
 
-                i2 = Variable('i2', dtype=np.int32, initial=0, to_write=True)
-                ts2 = Variable('ts2', dtype=np.int16, initial=0, to_write=True)
-                dt2 = Variable('dt2', dtype=np.int16, initial=0, to_write=True)
+                i2 = Variable('i2', dtype=np.uint16, initial=0, to_write=True)
+                ts2 = Variable('ts2', dtype=np.uint16, initial=0, to_write=True)
+                dt2 = Variable('dt2', dtype=np.uint16, initial=0, to_write=True)
 
-                i3 = Variable('i3', dtype=np.int32, initial=0, to_write=True)
-                ts3 = Variable('ts3', dtype=np.int16, initial=0, to_write=True)
-                dt3 = Variable('dt3', dtype=np.int16, initial=0, to_write=True)
+                i3 = Variable('i3', dtype=np.uint16, initial=0, to_write=True)
+                ts3 = Variable('ts3', dtype=np.uint16, initial=0, to_write=True)
+                dt3 = Variable('dt3', dtype=np.uint16, initial=0, to_write=True)
 
-                i4 = Variable('i4', dtype=np.int32, initial=0, to_write=True)
-                ts4 = Variable('ts4', dtype=np.int16, initial=0, to_write=True)
-                dt4 = Variable('dt4', dtype=np.int16, initial=0, to_write=True)
+                i4 = Variable('i4', dtype=np.uint16, initial=0, to_write=True)
+                ts4 = Variable('ts4', dtype=np.uint16, initial=0, to_write=True)
+                dt4 = Variable('dt4', dtype=np.uint16, initial=0, to_write=True)
 
-                i5 = Variable('i5', dtype=np.int32, initial=0, to_write=True)
-                ts5 = Variable('ts5', dtype=np.int16, initial=0, to_write=True)
-                dt5 = Variable('dt5', dtype=np.int16, initial=0, to_write=True)
+                i5 = Variable('i5', dtype=np.uint16, initial=0, to_write=True)
+                ts5 = Variable('ts5', dtype=np.uint16, initial=0, to_write=True)
+                dt5 = Variable('dt5', dtype=np.uint16, initial=0, to_write=True)
 
-                i6 = Variable('i6', dtype=np.int32, initial=0, to_write=True)
-                ts6 = Variable('ts6', dtype=np.int16, initial=0, to_write=True)
-                dt6 = Variable('dt6', dtype=np.int16, initial=0, to_write=True)
+                i6 = Variable('i6', dtype=np.uint16, initial=0, to_write=True)
+                ts6 = Variable('ts6', dtype=np.uint16, initial=0, to_write=True)
+                dt6 = Variable('dt6', dtype=np.uint16, initial=0, to_write=True)
 
-                i7 = Variable('i7', dtype=np.int32, initial=0, to_write=True)
-                ts7 = Variable('ts7', dtype=np.int16, initial=0, to_write=True)
-                dt7 = Variable('dt7', dtype=np.int16, initial=0, to_write=True)
+                i7 = Variable('i7', dtype=np.uint16, initial=0, to_write=True)
+                ts7 = Variable('ts7', dtype=np.uint16, initial=0, to_write=True)
+                dt7 = Variable('dt7', dtype=np.uint16, initial=0, to_write=True)
 
-                i8 = Variable('i8', dtype=np.int32, initial=0, to_write=True)
-                ts8 = Variable('ts8', dtype=np.int16, initial=0, to_write=True)
-                dt8 = Variable('dt8', dtype=np.int16, initial=0, to_write=True)
+                i8 = Variable('i8', dtype=np.uint16, initial=0, to_write=True)
+                ts8 = Variable('ts8', dtype=np.uint16, initial=0, to_write=True)
+                dt8 = Variable('dt8', dtype=np.uint16, initial=0, to_write=True)
 
-                i9 = Variable('i9', dtype=np.int32, initial=0, to_write=True)
-                ts9 = Variable('ts9', dtype=np.int16, initial=0, to_write=True)
-                dt9 = Variable('dt9', dtype=np.int16, initial=0, to_write=True)
+                i9 = Variable('i9', dtype=np.uint16, initial=0, to_write=True)
+                ts9 = Variable('ts9', dtype=np.uint16, initial=0, to_write=True)
+                dt9 = Variable('dt9', dtype=np.uint16, initial=0, to_write=True)
 
-                i10 = Variable('i10', dtype=np.int32, initial=0, to_write=True)
-                ts10 = Variable('ts10', dtype=np.int16, initial=0, to_write=True)
-                dt10 = Variable('dt10', dtype=np.int16, initial=0, to_write=True)
+                i10 = Variable('i10', dtype=np.uint16, initial=0, to_write=True)
+                ts10 = Variable('ts10', dtype=np.uint16, initial=0, to_write=True)
+                dt10 = Variable('dt10', dtype=np.uint16, initial=0, to_write=True)
 
-                i11 = Variable('i11', dtype=np.int32, initial=0, to_write=True)
-                ts11 = Variable('ts11', dtype=np.int16, initial=0, to_write=True)
-                dt11 = Variable('dt11', dtype=np.int16, initial=0, to_write=True)
+                i11 = Variable('i11', dtype=np.uint16, initial=0, to_write=True)
+                ts11 = Variable('ts11', dtype=np.uint16, initial=0, to_write=True)
+                dt11 = Variable('dt11', dtype=np.uint16, initial=0, to_write=True)
 
-                i12 = Variable('i12', dtype=np.int32, initial=0, to_write=True)
-                ts12 = Variable('ts12', dtype=np.int16, initial=0, to_write=True)
-                dt12 = Variable('dt12', dtype=np.int16, initial=0, to_write=True)
+                i12 = Variable('i12', dtype=np.uint16, initial=0, to_write=True)
+                ts12 = Variable('ts12', dtype=np.uint16, initial=0, to_write=True)
+                dt12 = Variable('dt12', dtype=np.uint16, initial=0, to_write=True)
 
-                i13 = Variable('i13', dtype=np.int32, initial=0, to_write=True)
-                ts13 = Variable('ts13', dtype=np.int16, initial=0, to_write=True)
-                dt13 = Variable('dt13', dtype=np.int16, initial=0, to_write=True)
+                i13 = Variable('i13', dtype=np.uint16, initial=0, to_write=True)
+                ts13 = Variable('ts13', dtype=np.uint16, initial=0, to_write=True)
+                dt13 = Variable('dt13', dtype=np.uint16, initial=0, to_write=True)
 
-                i14 = Variable('i14', dtype=np.int32, initial=0, to_write=True)
-                ts14 = Variable('ts14', dtype=np.int16, initial=0, to_write=True)
-                dt14 = Variable('dt14', dtype=np.int16, initial=0, to_write=True)
+                i14 = Variable('i14', dtype=np.uint16, initial=0, to_write=True)
+                ts14 = Variable('ts14', dtype=np.uint16, initial=0, to_write=True)
+                dt14 = Variable('dt14', dtype=np.uint16, initial=0, to_write=True)
 
-                i15 = Variable('i15', dtype=np.int32, initial=0, to_write=True)
-                ts15 = Variable('ts15', dtype=np.int16, initial=0, to_write=True)
-                dt15 = Variable('dt15', dtype=np.int16, initial=0, to_write=True)
+                i15 = Variable('i15', dtype=np.uint16, initial=0, to_write=True)
+                ts15 = Variable('ts15', dtype=np.uint16, initial=0, to_write=True)
+                dt15 = Variable('dt15', dtype=np.uint16, initial=0, to_write=True)
 
-                i16 = Variable('i16', dtype=np.int32, initial=0, to_write=True)
-                ts16 = Variable('ts16', dtype=np.int16, initial=0, to_write=True)
-                dt16 = Variable('dt16', dtype=np.int16, initial=0, to_write=True)
+                i16 = Variable('i16', dtype=np.uint16, initial=0, to_write=True)
+                ts16 = Variable('ts16', dtype=np.uint16, initial=0, to_write=True)
+                dt16 = Variable('dt16', dtype=np.uint16, initial=0, to_write=True)
 
-                i17 = Variable('i17', dtype=np.int32, initial=0, to_write=True)
-                ts17 = Variable('ts17', dtype=np.int16, initial=0, to_write=True)
-                dt17 = Variable('dt17', dtype=np.int16, initial=0, to_write=True)
+                i17 = Variable('i17', dtype=np.uint16, initial=0, to_write=True)
+                ts17 = Variable('ts17', dtype=np.uint16, initial=0, to_write=True)
+                dt17 = Variable('dt17', dtype=np.uint16, initial=0, to_write=True)
 
-                i18 = Variable('i18', dtype=np.int32, initial=0, to_write=True)
-                ts18 = Variable('ts18', dtype=np.int16, initial=0, to_write=True)
-                dt18 = Variable('dt18', dtype=np.int16, initial=0, to_write=True)
+                i18 = Variable('i18', dtype=np.uint16, initial=0, to_write=True)
+                ts18 = Variable('ts18', dtype=np.uint16, initial=0, to_write=True)
+                dt18 = Variable('dt18', dtype=np.uint16, initial=0, to_write=True)
 
-                i19 = Variable('i19', dtype=np.int32, initial=0, to_write=True)
-                ts19 = Variable('ts19', dtype=np.int16, initial=0, to_write=True)
-                dt19 = Variable('dt19', dtype=np.int16, initial=0, to_write=True)
+                i19 = Variable('i19', dtype=np.uint16, initial=0, to_write=True)
+                ts19 = Variable('ts19', dtype=np.uint16, initial=0, to_write=True)
+                dt19 = Variable('dt19', dtype=np.uint16, initial=0, to_write=True)
 
         return larva
 
@@ -907,6 +920,10 @@ class Experiment():
                 # TESTING ONLY ############################################
                 lm = 8e-7
                 ls = 1e-5
+                k  = 1e-5
+                tc = 6e5
+                e = 2.71828
+                particle.fc = 1/(1+e**(-k*((particle.dt*particle.ot)-tc)))
                 ###########################################################
 
                 # 1 Keep track of the amount of time spent at sea
@@ -917,13 +934,14 @@ class Experiment():
 
                 # TESTING ONLY ############################################
                 particle.rf = fieldset.coral_frac_c[particle]
+                particle.rf = particle.rf*particle.fc # Hack to make code more concise
                 ###########################################################
 
                 save_event = False
                 new_event = False
 
-                # 3 Trigger event cascade if larva is in a reef site and competency has been reached
-                if particle.idx > 0 and particle.ot > fieldset.competency:
+                # 3 Trigger event cascade if larva is in a reef site and minimum competency has been reached
+                if particle.idx > 0 and particle.ot > fieldset.min_competency:
 
                     # Check if an event has already been triggered
                     if particle.current_reef_ts > 0:
@@ -1180,7 +1198,7 @@ class Experiment():
                 new_event = False
 
                 # 3 Trigger event cascade if larva is in a reef site and competency has been reached
-                if particle.idx > 0 and particle.ot > fieldset.competency:
+                if particle.idx > 0 and particle.ot > fieldset.min_competency:
 
                     # Check if an event has already been triggered
                     if particle.current_reef_ts > 0:
@@ -1418,10 +1436,13 @@ class Experiment():
 
             ls = self.cfg['test_parameters']['ls']
             lm = self.cfg['test_parameters']['lm']
+            tc = self.cfg['test_parameters']['tc']
+            k = self.cfg['test_parameters']['k']
             N0 = 1
 
             idx_arr = []
             ts_arr = []
+            comp_arr = []
             dt_arr = []
 
             Ns_arr = []
@@ -1453,6 +1474,7 @@ class Experiment():
                     Ns_pred_temp = np.zeros_like(Ns_arr_temp[:, 0])
                     phi_temp = np.zeros_like(Ns_arr_temp[:, 0])
                     cf_temp = np.zeros_like(Ns_arr_temp[:, 0])
+                    comp_temp = np.zeros_like(Ns_arr_temp[:, 0])
 
                     # For each particle, calculate the estimated loss per event using the equation
                     for j in range(pn):
@@ -1462,28 +1484,34 @@ class Experiment():
 
                             ij_ts0 = ts_arr[i][j]*self.cfg['dt'].total_seconds()
                             ij_dt = dt_arr[i][j]*self.cfg['dt'].total_seconds()
+                            ij_comp = 1/(1+np.exp(-k*(ij_ts0+(0.5*ij_dt)-tc)))
 
                             if i > 0:
                                 ij_phi0 = phi_arr[i-1][j]
                             else:
                                 ij_phi0 = 0
 
-                            ij_coeff = N0*(ls*ij_cf)/(lm+(ls*ij_cf))
-                            exp1 = np.exp((-ls*(ij_phi0+(ij_cf*ij_dt)))-(lm*(ij_ts0+ij_dt)))
+                            ij_coeff = N0*(ls*ij_cf*ij_comp)/(lm+(ls*ij_cf*ij_comp))
+                            exp1 = np.exp((-ls*(ij_phi0+(ij_cf*ij_comp*ij_dt)))-(lm*(ij_ts0+ij_dt)))
                             exp0 = np.exp((-ls*ij_phi0)-(ij_ts0*lm))
 
                             Ns_pred_temp[j] = -ij_coeff*(exp1-exp0)
 
-                            phi_temp[j] = ij_phi0 + ij_cf*ij_dt
+                            phi_temp[j] = ij_phi0 + ij_comp*ij_cf*ij_dt
                             cf_temp[j] = ij_cf
+                            comp_temp[j] = ij_comp
 
                     Ns_pred_arr.append(Ns_pred_temp)
                     phi_arr.append(phi_temp)
                     cf_arr.append(cf_temp)
+                    comp_arr.append(comp_temp)
 
             # Now calculate the errors
-            Ns_all = np.array(Ns_arr).flatten() # Calculated (exact)
-            Ns_pred_all = np.array(Ns_pred_arr).flatten() # Predicted
+            Ns_all = np.array(Ns_arr).flatten() # Calculated (online)
+            Ns_pred_all = np.array(Ns_pred_arr).flatten() # Predicted (offline)
+
+            Ns_all = Ns_all[Ns_all > 0]
+            Ns_pred_all = Ns_pred_all[Ns_pred_all > 0]
 
             # Calculate the difference
             pct_diff = 100*(Ns_pred_all - Ns_all)/(Ns_all)
@@ -1495,9 +1523,14 @@ class Experiment():
             ax.set_xlim([-xarg_max, xarg_max])
             ax.set_xlabel('Percentage difference between analytical and online settling fluxes')
             ax.set_ylabel('Number of events')
-            ax.hist(pct_diff[np.isfinite(pct_diff)], range=(-xarg_max,xarg_max), bins=200, color='k')
+            ax.hist(pct_diff, range=(-xarg_max,xarg_max), bins=200, color='k')
 
             plt.savefig(self.dirs['fig'] + 'event_accuracy_test.png', dpi=300)
+
+            # Print statistics
+            pct_within_1pct = np.around(100*np.sum(np.abs(pct_diff) <= 1)/len(pct_diff), decimals=1)
+            print(str(pct_within_1pct) + '% of offline settling events within 1% of online value.')
+
         else:
             # Note that this section may need to be rewritten depending on the
             # minutae of the particular grid being used. Presets for CMEMS and
@@ -1565,7 +1598,7 @@ class Experiment():
                 for particle in range(np.shape(plat)[0]):
                     ax.plot(plon[particle, :], plat[particle, :], 'w-', linewidth=0.5)
 
-                plt.savefig(self.dirs['traj'] + 'trajectory_test.png', dpi=300)
+                plt.savefig(self.dirs['fig'] + 'trajectory_test.png', dpi=300)
 
 
 
