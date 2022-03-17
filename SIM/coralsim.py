@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import matplotlib.colors as colors
 import matplotlib
-import math
 import cmasher as cmr
 import pandas as pd
 import cartopy.crs as ccrs
@@ -31,10 +30,22 @@ class Experiment():
     Initialise a larval dispersal experiment.
     -----------
     Functions:
+        # Preproc:
         config: register directories and load preset
         generate_fieldset: generate fieldsets for OceanParcels
         generate_particleset: generate initial conditions for particles + kernels
+
+        # Runtime
         run: run OceanParcels using the above configuration
+
+        # Postproc
+        generate_dict:
+        postrun_tests: Plot particle trajectories and compare larval settling
+                       fluxes to the analytical offline result.
+
+        # Not to be called:
+        build_larva: build the larva class (used by generate_particleset)
+        build_event: build the event kernel (used by generate_particleset)
     """
 
 
@@ -45,7 +56,9 @@ class Experiment():
         self.status = {'config': False,
                        'fieldset': False,
                        'particleset': False,
-                       'run': False}
+                       'run': False,
+                       'dict': False,
+                       'dataframe': False}
 
         # Set up dictionaries for various parameters
         # self.
@@ -143,6 +156,16 @@ class Experiment():
         self.dirs = dir_dict
         self.fh = {}
 
+        # Further options
+        if 'dt' in kwargs.keys():
+            self.cfg['dt'] = kwargs['dt']
+
+        if 'larvae_per_cell' in kwargs.keys():
+            self.cfg['lpc'] = kwargs['larvae_per_cell']
+
+        if 'releases_per_month' in kwargs.keys():
+            self.cfg['rpm'] = kwargs['releases_per_month']
+
         self.status['config'] = True
 
 
@@ -213,9 +236,9 @@ class Experiment():
 
         # Import additional fields
         if self.cfg['grid'] == 'A':
-            field_list = ['cc', 'cf', 'eez', 'grp', 'idx']
+            self.field_list = ['cc', 'cf', 'eez', 'grp', 'idx']
 
-            for field in field_list:
+            for field in self.field_list:
                 field_varname = self.cfg['grid_' + field + '_varname']
 
                 # Firstly verify that dimensions are correct
@@ -288,6 +311,10 @@ class Experiment():
                 print('Old particle number: ' + str(kwargs['num']))
                 print('New particle number: ' + str(self.cfg['pn2']))
                 print()
+
+            if 'lpm' in self.cfg.keys():
+                if self.cfg['pn2'] != self.cfg['lpm']:
+                    raise Exception('Warning: lpm is inconsistent with existing particle number setting.')
 
         if 't0' not in kwargs.keys():
             print('Particle release time not supplied.')
@@ -407,10 +434,7 @@ class Experiment():
         print(str(len(particles['lon'])) + ' particles generated.')
         print()
 
-        # Now initialise particle properties
-        field_list = ['cc', 'cf', 'eez', 'grp', 'idx']
-
-        for field in field_list:
+        for field in self.field_list:
             particles[field] = np.zeros((self.cfg['nsite']*self.cfg['pn2'],),
                                         dtype=self.cfg[field + '_dtype'])
 
@@ -442,7 +466,7 @@ class Experiment():
                 particles['lon'][k*self.cfg['pn2']:(k+1)*self.cfg['pn2']] = gx
                 particles['lat'][k*self.cfg['pn2']:(k+1)*self.cfg['pn2']] = gy
 
-                for field in field_list:
+                for field in self.field_list:
                     value_k = self.fields[field][i, j]
                     particles[field][k*self.cfg['pn2']:(k+1)*self.cfg['pn2']] = value_k
 
@@ -453,7 +477,7 @@ class Experiment():
         particles_df = pd.DataFrame({'lon': particles['lon'],
                                      'lat': particles['lat']})
 
-        for field in field_list:
+        for field in self.field_list:
             particles_df[field] = particles[field]
 
         # Now add release times
@@ -514,7 +538,7 @@ class Experiment():
             self.cfg['test_parameters'] = {'lm': 8e-7,
                                            'ls': 1e-5,
                                            'tc': 6e5,
-                                           'k' : 1e-5}
+                                           'kc' : 1e-5}
 
         # Now plot (if wished)
         if self.cfg['plot'] and not self.cfg['test']:
@@ -551,7 +575,7 @@ class Experiment():
         self.status['particleset'] = True
 
 
-    def build_larva(self, test):
+    def build_larva(test):
         """
         This script builds the larva class as a test or operational class based
         on whether test is True or False
@@ -901,6 +925,7 @@ class Experiment():
                 i19 = Variable('i19', dtype=np.uint16, initial=0, to_write=True)
                 ts19 = Variable('ts19', dtype=np.uint16, initial=0, to_write=True)
                 dt19 = Variable('dt19', dtype=np.uint16, initial=0, to_write=True)
+
 
         return larva
 
@@ -1352,7 +1377,6 @@ class Experiment():
         return event
 
 
-
     def run(self, **kwargs):
         """
         Generate the ParticleSet object for OceanParcels
@@ -1400,7 +1424,6 @@ class Experiment():
         self.status['run'] = True
 
 
-
     def postrun_tests(self):
         """
         This function carries out a test for the accuracy of the events kernels
@@ -1437,7 +1460,7 @@ class Experiment():
             ls = self.cfg['test_parameters']['ls']
             lm = self.cfg['test_parameters']['lm']
             tc = self.cfg['test_parameters']['tc']
-            k = self.cfg['test_parameters']['k']
+            kr = self.cfg['test_parameters']['kr']
             N0 = 1
 
             idx_arr = []
@@ -1484,7 +1507,7 @@ class Experiment():
 
                             ij_ts0 = ts_arr[i][j]*self.cfg['dt'].total_seconds()
                             ij_dt = dt_arr[i][j]*self.cfg['dt'].total_seconds()
-                            ij_comp = 1/(1+np.exp(-k*(ij_ts0+(0.5*ij_dt)-tc)))
+                            ij_comp = 1/(1+np.exp(-kr*(ij_ts0+(0.5*ij_dt)-tc)))
 
                             if i > 0:
                                 ij_phi0 = phi_arr[i-1][j]
@@ -1601,120 +1624,104 @@ class Experiment():
                 plt.savefig(self.dirs['fig'] + 'trajectory_test.png', dpi=300)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-class Output():
-    """
-    Load and reformat output from coralsim
-
-    """
-
-    def __init__(self, root_dir):
-        # Set up a status dictionary so we know the completion status of processes
-        self.status = {'dict': False,
-                       'dataframe': False}
-
-    def generate_dict(self, fh, **kwargs):
+    def generate_dict(self, **kwargs):
         """
-        Parameters (* are required)
-        ----------
-        kwargs :
-            fh*: File handle for grid file
-            idx_varname*: Variable name for the index grid
-            cf_varname*: Variable name for the coral fraction grid
-            cc_varname*: Variable name for the coral cover grid
+        Generate a dict to convert cell indices to coral cover, coral fraction, etc.
 
         """
 
-        if not all (key in kwargs.keys() for key in ['idx_varname', 'cf_varname', 'cc_varname', 'grp_varname']):
-            raise KeyError('Must ensure that variable names for index, coral fraction and coral fraction grids have been supplied')
+        if not self.status['config']:
+            raise Exception('Please run config first.')
 
-        with Dataset(fh, mode='r') as nc:
-            self.coral_frac_grid = nc.variables[kwargs['cf_varname']][:]
-            self.coral_cover_grid = nc.variables[kwargs['cc_varname']][:]
-            self.coral_idx_grid = nc.variables[kwargs['idx_varname']][:]
-            self.coral_grp_grid = nc.variables[kwargs['grp_varname']][:]
+        if not self.status['fieldset']:
+            # Load fields
+            self.fh['grid'] = self.dirs['grid'] + self.cfg['grid_filename']
+            self.fields = {}
 
-        # Find the locations of coral sites
-        idx_list, cf_list, cc_list, grp_list = [], [], [], []
+            self.field_list = ['cc', 'cf', 'eez', 'grp', 'idx']
 
-        for (yidx, xidx) in zip(np.ma.nonzero(self.coral_idx_grid)[0],
-                                np.ma.nonzero(self.coral_idx_grid)[1]):
+            with Dataset(self.fh['grid'], mode='r') as nc:
+                for field in self.field_list:
+                    field_varname = self.cfg['grid_' + field + '_varname']
+                    self.fields[field] = nc.variables[field_varname][:]
 
-            # Translate index -> cf/cc
-            idx_list.append(self.coral_idx_grid[yidx, xidx])
-            cf_list.append(self.coral_frac_grid[yidx, xidx])
-            cc_list.append(self.coral_cover_grid[yidx, xidx])
+        self.dicts = {}
 
-        self.cf_dict = dict(zip(idx_list, cf_list))
-        self.cc_dict = dict(zip(idx_list, cc_list))
-        self.cf_dict[0] = -999
+        # Firstly generate list of indices
+        index_list = []
+        for (yidx, xidx) in zip(np.ma.nonzero(self.fields['idx'])[0],
+                                np.ma.nonzero(self.fields['idx'])[1]):
+
+            index_list.append(self.fields['idx'][yidx, xidx])
+
+        # Now generate dictionaries
+        for field in self.field_list:
+            if field != 'idx':
+                temp_list = []
+
+                for (yidx, xidx) in zip(np.ma.nonzero(self.fields['idx'])[0],
+                                        np.ma.nonzero(self.fields['idx'])[1]):
+
+                    temp_list.append(self.fields[field][yidx, xidx])
+                    self.dicts[field] = dict(zip(index_list, temp_list))
+                    self.dicts[field][0] = -999
+
 
         # Create dictionary to translate group -> number of cells in group
-        grp_key, grp_val = np.unique(self.coral_grp_grid.compressed(),return_counts=True)
-        self.num_in_grp_dict = dict(zip(grp_key, grp_val))
+        grp_key, grp_val = np.unique(self.fields['grp'].compressed(),return_counts=True)
+        self.dicts['grp_numcell'] = dict(zip(grp_key, grp_val))
 
         self.status['dict'] = True
 
 
-    def to_dataframe(self, fh_list, **kwargs):
+    def to_dataframe(self, **kwargs):
 
         """
         Parameters (* are required)
         ----------
         kwargs :
             fh*: File handles to data
-            lm*: Mortality rate for coral larvae
-            ls*: Settling rate for coral larvae
-            dt*: Model time-step (s)
-            lpc*: Number of larvae released per cell
-            rpm*: Number of releases per month
+            parameters*: Postproc parameters (dict with lm + ls, and optionally tc + kc)
+            dt: Model time-step as timedelta (required if not supplied in config)
+            larvae_per_cell*: Number of larvae released per cell
+            releases_per_month*: Number of releases per model month
 
         """
 
         if not self.status['dict']:
-            raise Exception('Please run generate_dict first')
+            raise Exception('Please run generate_dict first.')
 
-        if not all (key in kwargs.keys() for key in ['lm', 'ls', 'dt', 'lpc', 'rpm']):
-            raise KeyError('Please ensure that all parameters have been supplied')
+        if 'parameters' not in kwargs.keys():
+            raise KeyError('Please supply a parameters dictionary.')
+        else:
+            lm = kwargs['parameters']['lm']
+            ls = kwargs['parameters']['ls']
 
-        self.dt = kwargs['dt']
-        self.lm = kwargs['lm']
-        self.ls = kwargs['ls']
+            if 'tc' in kwargs['parameters']:
+                adv_competency = True
+                tc = kwargs['parameters']['tc']
+                kc = kwargs['parameters']['kc']
+            else:
+                adv_competency = False
 
-        dt = self.dt
-        lm = self.lm
-        ls = self.ls
+        if 'dt' in self.cfg.keys():
+            dt = self.cfg['dt'].total_seconds()
+        elif 'dt' in kwargs.keys():
+            dt = kwargs['dt'].total_seconds()
+        else:
+            raise KeyError('Please supply the RK4 timestep used.')
+
+        if 'fh' not in kwargs.keys():
+            raise KeyError('Please supply a list of files to analyse.')
+
+        if 'lpc' not in self.cfg.keys():
+            raise KeyError('Please supply the number of larvae released per cell per release in config.')
+
+        if 'rpm' not in self.cfg.keys():
+            raise KeyError('Please supply the number of separate releases per month in config.')
+
+        # Get files
+        fh_list = sorted(glob(self.dirs['traj'] + kwargs['fh']))
 
         # Open the first file to find the number of events stored
         with Dataset(fh_list[0], mode='r') as nc:
@@ -1728,7 +1735,7 @@ class Output():
                 except:
                     searching = False
 
-            self.max_events = e_num
+            self.cfg['max_events'] = e_num
 
         data_list = []
 
@@ -1749,15 +1756,15 @@ class Output():
                 t0 = datetime(year=y0, month=m0, day=d0, hour=0)
 
                 # Load all data into memory
-                idx_array = np.zeros((n_traj, self.max_events), dtype=np.uint16)
-                ts0_array = np.zeros((n_traj, self.max_events), dtype=np.uint32)
-                dts_array = np.zeros((n_traj, self.max_events), dtype=np.uint32)
+                idx_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
+                ts0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
+                dts_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
                 idx0_array = np.zeros((n_traj,), dtype=np.uint16)
 
-                cf_array = np.zeros((n_traj, self.max_events), dtype=np.float32)
-                ns_array = np.zeros((n_traj, self.max_events), dtype=np.float32)
+                cf_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
 
-                for i in range(self.max_events):
+                for i in range(self.cfg['max_events']):
                     idx_array[:, i] = nc.variables['i' + str(i)][:, 0]
                     ts0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*dt
                     dts_array[:, i] = nc.variables['dt' + str(i)][:, 0]*dt
@@ -1776,11 +1783,11 @@ class Output():
                 d_array[src] = values
                 return d_array[a]
 
-            cf_array = translate(idx_array, self.cf_dict)
+            cf_array = translate(idx_array, self.dicts['cf'])
             cf_array = np.ma.masked_array(cf_array, mask=mask)
 
             # Now calculate the fractional losses
-            for i in range(self.max_events):
+            for i in range(self.cfg['max_events']):
                 if i == 0:
                     phi = np.zeros((n_traj,), dtype=np.float32)
 
@@ -1804,17 +1811,17 @@ class Output():
             grp0_array = np.ma.masked_array(grp0_array, mask=mask)
 
             # Obtain origin coral cover as a proxy for total larval number and project
-            cc0 = translate(idx0_array, self.cc_dict)
+            cc0 = translate(idx0_array, self.dicts['cc'])
             cc0_array = np.zeros_like(idx_array, dtype=np.int32)
             cc0_array[:] = cc0
             cc0_array = np.ma.masked_array(cc0_array, mask=mask)
-            cc0_array = cc0_array/kwargs['lpc']
+            cc0_array = cc0_array/self.cfg['lpc']
 
             # Obtain number of larvae released in group for larval fraction and project
-            lf0 = translate(grp0_array, self.num_in_grp_dict)
+            lf0 = translate(grp0_array, self.dicts['grp_numcell'])
             lf0_array = np.zeros_like(idx_array, dtype=np.float32)
             lf0_array[:] = lf0
-            lf0_array = 1/(kwargs['lpc']*kwargs['rpm']*lf0_array)
+            lf0_array = 1/(self.cfg['lpc']*self.cfg['rpm']*lf0_array)
 
             # Convert fractional settling larvae to proportion of larvae released from source reef in release month
             settling_larvae_frac = lf0_array*ns_array
@@ -1835,29 +1842,29 @@ class Output():
                           'release_year': 'int16',
                           'release_month': 'int8'})
 
-            if kwargs['matrix']:
-                grp_list = np.array([1, 3, 4, 5, 8, 11, 14, 15, 2, 6, 7, 9, 10, 12, 13, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 16, 22, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38])
-                n_grp = len(grp_list)
+            # if kwargs['matrix']:
+            #     grp_list = np.array([1, 3, 4, 5, 8, 11, 14, 15, 2, 6, 7, 9, 10, 12, 13, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 16, 22, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38])
+            #     n_grp = len(grp_list)
 
-                if fhi == 0:
-                    probability_matrix = np.zeros((n_grp, n_grp), dtype=np.float32)
-                    flux_matrix = np.zeros_like(probability_matrix, dtype=np.float32)
+            #     if fhi == 0:
+            #         probability_matrix = np.zeros((n_grp, n_grp), dtype=np.float32)
+            #         flux_matrix = np.zeros_like(probability_matrix, dtype=np.float32)
 
-                for i, source_grp in enumerate(grp_list):
-                    for j, sink_grp in enumerate(grp_list):
-                        # Probability of a larva going from source -> sink:
-                        # Sum of settling_larval_frac for source_group == source and
-                        # sink_group == sink
+            #     for i, source_grp in enumerate(grp_list):
+            #         for j, sink_grp in enumerate(grp_list):
+            #             # Probability of a larva going from source -> sink:
+            #             # Sum of settling_larval_frac for source_group == source and
+            #             # sink_group == sink
 
-                        # Flux of larvae going from source -> sink:
-                        # Sum of settling larvae for source_group == source and
-                        # sink_group == sink
+            #             # Flux of larvae going from source -> sink:
+            #             # Sum of settling larvae for source_group == source and
+            #             # sink_group == sink
 
-                        subset = frame.loc[(frame['source_group'] == source_grp) &
-                                           (frame['sink_group'] == sink_grp)].sum()
+            #             subset = frame.loc[(frame['source_group'] == source_grp) &
+            #                                (frame['sink_group'] == sink_grp)].sum()
 
-                        probability_matrix[i, j] += subset['settling_larval_frac']/(len(fh_list))
-                        flux_matrix[i, j] += subset['settling_larval_num']/(len(fh_list)/(12*kwargs['rpm'])) # Convert to flux per year
+            #             probability_matrix[i, j] += subset['settling_larval_frac']/(len(fh_list))
+            #             flux_matrix[i, j] += subset['settling_larval_num']/(len(fh_list)/(12*kwargs['rpm'])) # Convert to flux per year
 
         #     data_list.append(frame)
 
@@ -1866,7 +1873,7 @@ class Output():
         # data.reset_index(drop=True)
         # self.data = data
 
-        self.matrix = [probability_matrix, flux_matrix]
+                # self.matrix = [probability_matrix, flux_matrix]
 
         self.status['dataframe'] = True
 
