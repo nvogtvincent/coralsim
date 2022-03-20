@@ -166,6 +166,9 @@ class Experiment():
         if 'releases_per_month' in kwargs.keys():
             self.cfg['rpm'] = kwargs['releases_per_month']
 
+        if 'test_params' in kwargs.keys():
+            self.cfg['test_params'] = kwargs['test_params']
+
         self.status['config'] = True
 
 
@@ -531,14 +534,17 @@ class Experiment():
         self.fieldset.add_constant('max_age', int(self.cfg['run_time']/self.cfg['dt']))
         assert self.fieldset.max_age < np.iinfo(np.uint16).max
 
+        # Add test parameters to fieldset
+        if self.cfg['test']:
+            if 'test_params' not in self.cfg.keys():
+                print('Test parameters not supplied, using default values.')
+                self.cfg['test_params'] = {'lm': 8e-7, 'ls': 1e-5, 'tc': 6e5, 'kc' : 1e-5}
+
+            for key in self.cfg['test_params'].keys():
+                self.fieldset.add_constant(key, self.cfg['test_params'][key])
+
         # Generate kernels
         self.kernel = (self.pset.Kernel(AdvectionRK4) + self.pset.Kernel(self.build_event_kernel(self.cfg['test'])))
-
-        if self.cfg['test']:
-            self.cfg['test_parameters'] = {'lm': 8e-7,
-                                           'ls': 1e-5,
-                                           'tc': 6e5,
-                                           'kc' : 1e-5}
 
         # Now plot (if wished)
         if self.cfg['plot'] and not self.cfg['test']:
@@ -575,7 +581,7 @@ class Experiment():
         self.status['particleset'] = True
 
 
-    def build_larva(test):
+    def build_larva(self, test):
         """
         This script builds the larva class as a test or operational class based
         on whether test is True or False
@@ -943,12 +949,8 @@ class Experiment():
             def event(particle, fieldset, time):
 
                 # TESTING ONLY ############################################
-                lm = 8e-7
-                ls = 1e-5
-                k  = 1e-5
-                tc = 6e5
                 e = 2.71828
-                particle.fc = 1/(1+e**(-k*((particle.dt*particle.ot)-tc)))
+                particle.fc = 1/(1+e**(-fieldset.kc*((particle.dt*particle.ot)-fieldset.tc)))
                 ###########################################################
 
                 # 1 Keep track of the amount of time spent at sea
@@ -978,9 +980,9 @@ class Experiment():
                             particle.current_reef_ts += 1
 
                             # TESTING ONLY ############################################
-                            particle.Ns = particle.Ns + (particle.rf*ls*particle.N*particle.dt)
-                            particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
-                            particle.N0 = particle.rf*ls*particle.N*particle.dt
+                            particle.Ns = particle.Ns + (particle.rf*fieldset.ls*particle.N*particle.dt)
+                            particle.N  = particle.N - ((particle.rf*fieldset.ls + fieldset.lm)*particle.N*particle.dt)
+                            particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
                             ###########################################################
 
                             # But also check that the particle isn't about to expire (save if so)
@@ -994,8 +996,8 @@ class Experiment():
 
                             # TESTING ONLY ############################################
                             particle.Ns = particle.Ns
-                            particle.N0 = particle.rf*ls*particle.N*particle.dt
-                            particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
+                            particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
+                            particle.N  = particle.N - ((particle.rf*fieldset.ls + fieldset.lm)*particle.N*particle.dt)
                             ###########################################################
 
                             # Otherwise, we need to save the old event and create a new event
@@ -1005,9 +1007,9 @@ class Experiment():
                     else:
 
                         # TESTING ONLY ############################################
-                        particle.Ns = particle.Ns + (particle.rf*ls*particle.N*particle.dt)
-                        particle.N0 = particle.rf*ls*particle.N*particle.dt
-                        particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
+                        particle.Ns = particle.Ns + (particle.rf*fieldset.ls*particle.N*particle.dt)
+                        particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
+                        particle.N  = particle.N - ((particle.rf*ls + fieldset.lm)*particle.N*particle.dt)
                         ###########################################################
 
                         # If event has not been triggered, create a new event
@@ -1020,14 +1022,14 @@ class Experiment():
 
                         # TESTING ONLY ############################################
                         particle.Ns = particle.Ns
-                        particle.N0 = particle.rf*ls*particle.N*particle.dt
-                        particle.N  = particle.N - ((particle.rf*ls + lm)*particle.N*particle.dt)
+                        particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
+                        particle.N  = particle.N - ((particle.rf*fieldset.ls + fieldset.lm)*particle.N*particle.dt)
                         ###########################################################
 
                         save_event = True
                     else:
                         # TESTING ONLY ############################################
-                        particle.N  = particle.N - (lm*particle.N*particle.dt)
+                        particle.N  = particle.N - (fieldset.lm*particle.N*particle.dt)
                         ###########################################################
 
 
@@ -1183,7 +1185,6 @@ class Experiment():
                     particle.current_reef_idx = 0
                     particle.current_reef_ts0 = 0
                     particle.current_reef_ts = 0
-                    # particle.Ns = 0
 
                     # Add to event number counter
                     particle.e_num += 1
@@ -1399,10 +1400,10 @@ class Experiment():
         print('Exporting output to ' + str(self.fh['traj']))
 
         if self.cfg['test']:
-            if self.cfg['test_type'] == 'kernel':
-                self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], outputdt=timedelta(hours=24))
-            else:
+            if self.cfg['test_type'] == 'traj':
                 self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], outputdt=timedelta(hours=2))
+            else:
+                self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], write_ondelete=True)
         else:
             self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], write_ondelete=True)
 
@@ -1444,100 +1445,87 @@ class Experiment():
             raise Exception('Simulation must have been run in testing mode')
         elif not self.status['run']:
             raise Exception('Must run the simulation before events can be tested')
+        elif not self.status['dict']:
+            self.generate_dict()
 
         if self.cfg['test_type'] == 'kernel':
-            # Create a look-up table to relate cell index to coral reef fraction
-            yidx_list, xidx_list = np.ma.nonzero(self.fields['idx'])
-            idx_list = []
-            fraction_list = []
+            lm = self.cfg['test_params']['lm']
+            ls = self.cfg['test_params']['ls']
+            tc = self.cfg['test_params']['tc']
+            kc = self.cfg['test_params']['kc']
 
-            for (yidx, xidx) in zip(yidx_list, xidx_list):
-                idx_list.append(self.fields['idx'][yidx, xidx])
-                fraction_list.append(self.fields['cf'][yidx, xidx])
-
-            cf_dict = dict(zip(idx_list, fraction_list))
-
-            ls = self.cfg['test_parameters']['ls']
-            lm = self.cfg['test_parameters']['lm']
-            tc = self.cfg['test_parameters']['tc']
-            kr = self.cfg['test_parameters']['kr']
-            N0 = 1
-
-            idx_arr = []
-            ts_arr = []
-            comp_arr = []
-            dt_arr = []
-
-            Ns_arr = []
-            Ns_pred_arr = []
-
-            phi_arr = []
-            cf_arr = []
+            dt = self.cfg['dt'].total_seconds()
 
             with Dataset(self.fh['traj'], mode='r') as nc:
+                # Find the number of events
+                e_num = 0
+                searching = True
 
-                e_num = nc.variables['e_num'][:]
-                e_num = e_num[np.ma.notmasked_edges(e_num, axis=1)[1]]
+                while searching:
+                    try:
+                        nc.variables['i' + str(e_num)]
+                        e_num += 1
+                    except:
+                        searching = False
 
-                pn = np.shape(e_num)[0]
+                self.cfg['max_events'] = e_num
 
-                for i in range(19):
-                    idx_arr_temp = nc.variables['i' + str(i)][:]
-                    idx_arr.append(idx_arr_temp[np.ma.notmasked_edges(idx_arr_temp, axis=1)[1]])
+                e_num = nc.variables['e_num'][:] # Number of events stored per trajectory
+                n_traj = np.shape(e_num)[0] # Number of trajectories in file
 
-                    ts_arr_temp = nc.variables['ts' + str(i)][:]
-                    ts_arr.append(ts_arr_temp[np.ma.notmasked_edges(ts_arr_temp, axis=1)[1]])
+                # Load all data into memory
+                idx_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
+                ts0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint32)
+                dts_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint32)
 
-                    dt_arr_temp = nc.variables['dt' + str(i)][:]
-                    dt_arr.append(dt_arr_temp[np.ma.notmasked_edges(dt_arr_temp, axis=1)[1]])
+                cf_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                fc_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                ns_test_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
 
-                    Ns_arr_temp = nc.variables['Ns' + str(i)][:]
-                    Ns_arr.append(Ns_arr_temp[np.ma.notmasked_edges(Ns_arr_temp, axis=1)[1]])
+                for i in range(self.cfg['max_events']):
+                    idx_array[:, i] = nc.variables['i' + str(i)][:, 0]
+                    ts0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*dt
+                    dts_array[:, i] = nc.variables['dt' + str(i)][:, 0]*dt
+                    ns_test_array[:, i] = nc.variables['Ns' + str(i)][:, 0]
 
-                    Ns_pred_temp = np.zeros_like(Ns_arr_temp[:, 0])
-                    phi_temp = np.zeros_like(Ns_arr_temp[:, 0])
-                    cf_temp = np.zeros_like(Ns_arr_temp[:, 0])
-                    comp_temp = np.zeros_like(Ns_arr_temp[:, 0])
+            mask = (idx_array == 0)
 
-                    # For each particle, calculate the estimated loss per event using the equation
-                    for j in range(pn):
-                        if e_num[j] > i:
-                            ij_idx = idx_arr[i][j]
-                            ij_cf = cf_dict[ij_idx]
+            # Now generate an array containing the coral fraction for each index
+            def translate(a, d):
+                # Adapted from Maxim's excellent suggestion:
+                # https://stackoverflow.com/questions/16992713/translate-every-element-in-numpy-array-according-to-key
+                src, values = np.array(list(d.keys()), dtype=np.uint16), np.array(list(d.values()), dtype=np.float32)
+                d_array = np.zeros((src.max()+1), dtype=np.float32)
+                d_array[src] = values
+                return d_array[a]
 
-                            ij_ts0 = ts_arr[i][j]*self.cfg['dt'].total_seconds()
-                            ij_dt = dt_arr[i][j]*self.cfg['dt'].total_seconds()
-                            ij_comp = 1/(1+np.exp(-kr*(ij_ts0+(0.5*ij_dt)-tc)))
+            cf_array = translate(idx_array, self.dicts['cf'])
+            cf_array = np.ma.masked_array(cf_array, mask=mask)
+            ts0_array = np.ma.masked_array(ts0_array, mask=mask)
+            dts_array = np.ma.masked_array(dts_array, mask=mask)
 
-                            if i > 0:
-                                ij_phi0 = phi_arr[i-1][j]
-                            else:
-                                ij_phi0 = 0
+            # Calculate competency (mid-points)
+            fc_array = 1/(1+np.exp(-kc*(ts0_array+(0.5*dts_array)-tc)))
 
-                            ij_coeff = N0*(ls*ij_cf*ij_comp)/(lm+(ls*ij_cf*ij_comp))
-                            exp1 = np.exp((-ls*(ij_phi0+(ij_cf*ij_comp*ij_dt)))-(lm*(ij_ts0+ij_dt)))
-                            exp0 = np.exp((-ls*ij_phi0)-(ij_ts0*lm))
+            # Now calculate the fractional losses
+            for i in range(self.cfg['max_events']):
+                if i == 0:
+                    phi = np.zeros((n_traj,), dtype=np.float32)
 
-                            Ns_pred_temp[j] = -ij_coeff*(exp1-exp0)
+                coeff = (ls*cf_array[:, i]*fc_array[:, i])/(lm+(ls*cf_array[:, i]*fc_array[:, i]))
+                n0 = np.exp((-ls*phi)-(ts0_array[:, i]*lm))
+                n1 = np.exp((-ls*(phi+(cf_array[:, i]*fc_array[:, i]*dts_array[:, i])))-(lm*(ts0_array[:, i]+dts_array[:, i])))
 
-                            phi_temp[j] = ij_phi0 + ij_comp*ij_cf*ij_dt
-                            cf_temp[j] = ij_cf
-                            comp_temp[j] = ij_comp
+                ns_array[:, i] = -coeff*(n1-n0)
+                phi = phi + cf_array[:, i]*fc_array[:, i]*dts_array[:, i]
 
-                    Ns_pred_arr.append(Ns_pred_temp)
-                    phi_arr.append(phi_temp)
-                    cf_arr.append(cf_temp)
-                    comp_arr.append(comp_temp)
+            ns_array = np.ma.masked_array(ns_array, mask=mask)
+            ns_test_array = np.ma.masked_array(ns_test_array, mask=mask)
 
-            # Now calculate the errors
-            Ns_all = np.array(Ns_arr).flatten() # Calculated (online)
-            Ns_pred_all = np.array(Ns_pred_arr).flatten() # Predicted (offline)
-
-            Ns_all = Ns_all[Ns_all > 0]
-            Ns_pred_all = Ns_pred_all[Ns_pred_all > 0]
-
-            # Calculate the difference
-            pct_diff = 100*(Ns_pred_all - Ns_all)/(Ns_all)
+            # Now calculate the percentage difference of events
+            pct_diff = 100*(ns_array-ns_test_array)/ns_test_array
+            pct_diff = pct_diff.compressed()
 
             # Plot
             f, ax = plt.subplots(1, 1, figsize=(10, 10))
@@ -1624,7 +1612,7 @@ class Experiment():
                 plt.savefig(self.dirs['fig'] + 'trajectory_test.png', dpi=300)
 
 
-    def generate_dict(self, **kwargs):
+    def generate_dict(self):
         """
         Generate a dict to convert cell indices to coral cover, coral fraction, etc.
 
@@ -1689,7 +1677,7 @@ class Experiment():
         """
 
         if not self.status['dict']:
-            raise Exception('Please run generate_dict first.')
+            self.generate_dict()
 
         if 'parameters' not in kwargs.keys():
             raise KeyError('Please supply a parameters dictionary.')
