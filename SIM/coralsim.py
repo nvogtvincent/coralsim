@@ -23,6 +23,8 @@ from parcels import (Field, FieldSet, ParticleSet, JITParticle, AdvectionRK4,
 from netCDF4 import Dataset
 from datetime import timedelta, datetime
 from tqdm import tqdm
+from numba import njit
+import time as timer
 
 
 class Experiment():
@@ -103,15 +105,15 @@ class Experiment():
                  'model_filenames': 'CMEMS_SFC*.nc',
 
                  # Variable names for grid file
-                 'grid_cc_varname' : 'coral_cover_c', # Coral cover
-                 'grid_cf_varname' : 'coral_frac_c',  # Coral fraction
-                 'grid_eez_varname': 'coral_eez_c',   # Coral EEZ
-                 'grid_grp_varname': 'coral_grp_c',   # Coral group
-                 'grid_idx_varname': 'coral_idx_c',   # Coral index,
+                 'grid_rc_varname' : 'reef_cover_c', # Reef cover
+                 'grid_rf_varname' : 'reef_frac_c',  # Reef fraction
+                 'grid_eez_varname': 'reef_eez_c',   # Reef EEZ
+                 'grid_grp_varname': 'reef_grp_c',   # Reef group
+                 'grid_idx_varname': 'reef_idx_c',   # Reef index,
 
                  # Variable types
-                 'cc_dtype': np.int32,
-                 'cf_dtype': np.float32,
+                 'rc_dtype': np.int32,
+                 'rf_dtype': np.float32,
                  'eez_dtype': np.int16,
                  'grp_dtype': np.uint8,
                  'idx_dtype': np.uint16,
@@ -168,6 +170,17 @@ class Experiment():
 
         if 'test_params' in kwargs.keys():
             self.cfg['test_params'] = kwargs['test_params']
+
+        @njit(parallel=True)
+        def ode(fri, psi0, ls, lm, kc, tc, t, h):
+            # To change the mortality curve, you need to modify this part of
+            # the code!
+
+            psi1 = psi0 + (fri/kc)*(np.log(1+np.exp(kc*(t+h-tc))) - np.log(1+np.exp(kc*(t-tc))))
+
+            return np.exp(-(ls*psi1)-(lm*(t+h)))/(1+np.exp(-kc*(t+h-tc))), psi1
+
+        self.ode = ode
 
         self.status['config'] = True
 
@@ -239,7 +252,7 @@ class Experiment():
 
         # Import additional fields
         if self.cfg['grid'] == 'A':
-            self.field_list = ['cc', 'cf', 'eez', 'grp', 'idx']
+            self.field_list = ['rc', 'rf', 'eez', 'grp', 'idx']
 
             for field in self.field_list:
                 field_varname = self.cfg['grid_' + field + '_varname']
@@ -252,7 +265,7 @@ class Experiment():
                                       (self.axes['ny_psi'], self.axes['nx_psi'])):
                     raise Exception('Field ' + field_varname + ' has incorrect dimensions')
 
-                if field in ['cc', 'eez', 'grp', 'idx']:
+                if field in ['rc', 'eez', 'grp', 'idx']:
                     if np.max(self.fields[field]) > np.iinfo(self.cfg[field + '_dtype']).max:
                         raise Exception('Maximum value exceeded in ' + field_varname + '.')
 
@@ -404,7 +417,7 @@ class Experiment():
             self.cfg['plot'] = False
 
         # Build a mask of valid initial position cells
-        reef_mask = (self.fields['cc'] > 0)
+        reef_mask = (self.fields['rc'] > 0)
         self.cfg['nsite_nofilter'] = int(np.sum(reef_mask))
 
         # Filter if applicable
@@ -662,85 +675,85 @@ class Experiment():
                 e_num = Variable('e_num', dtype=np.int16, initial=0, to_write=True)
 
                 # Event variables (i = idx, t = arrival time(step), dt = time(steps) at reef)
-                i0 = Variable('i0', dtype=np.int32, initial=0, to_write=True)
-                ts0 = Variable('ts0', dtype=np.int16, initial=0, to_write=True)
-                dt0 = Variable('dt0', dtype=np.int16, initial=0, to_write=True)
+                i0 = Variable('i0', dtype=np.uint16, initial=0, to_write=True)
+                ts0 = Variable('ts0', dtype=np.uint16, initial=0, to_write=True)
+                dt0 = Variable('dt0', dtype=np.uint16, initial=0, to_write=True)
 
-                i1 = Variable('i1', dtype=np.int32, initial=0, to_write=True)
-                ts1 = Variable('ts1', dtype=np.int16, initial=0, to_write=True)
-                dt1 = Variable('dt1', dtype=np.int16, initial=0, to_write=True)
+                i1 = Variable('i1', dtype=np.uint16, initial=0, to_write=True)
+                ts1 = Variable('ts1', dtype=np.uint16, initial=0, to_write=True)
+                dt1 = Variable('dt1', dtype=np.uint16, initial=0, to_write=True)
 
-                i2 = Variable('i2', dtype=np.int32, initial=0, to_write=True)
-                ts2 = Variable('ts2', dtype=np.int16, initial=0, to_write=True)
-                dt2 = Variable('dt2', dtype=np.int16, initial=0, to_write=True)
+                i2 = Variable('i2', dtype=np.uint16, initial=0, to_write=True)
+                ts2 = Variable('ts2', dtype=np.uint16, initial=0, to_write=True)
+                dt2 = Variable('dt2', dtype=np.uint16, initial=0, to_write=True)
 
-                i3 = Variable('i3', dtype=np.int32, initial=0, to_write=True)
-                ts3 = Variable('ts3', dtype=np.int16, initial=0, to_write=True)
-                dt3 = Variable('dt3', dtype=np.int16, initial=0, to_write=True)
+                i3 = Variable('i3', dtype=np.uint16, initial=0, to_write=True)
+                ts3 = Variable('ts3', dtype=np.uint16, initial=0, to_write=True)
+                dt3 = Variable('dt3', dtype=np.uint16, initial=0, to_write=True)
 
-                i4 = Variable('i4', dtype=np.int32, initial=0, to_write=True)
-                ts4 = Variable('ts4', dtype=np.int16, initial=0, to_write=True)
-                dt4 = Variable('dt4', dtype=np.int16, initial=0, to_write=True)
+                i4 = Variable('i4', dtype=np.uint16, initial=0, to_write=True)
+                ts4 = Variable('ts4', dtype=np.uint16, initial=0, to_write=True)
+                dt4 = Variable('dt4', dtype=np.uint16, initial=0, to_write=True)
 
-                i5 = Variable('i5', dtype=np.int32, initial=0, to_write=True)
-                ts5 = Variable('ts5', dtype=np.int16, initial=0, to_write=True)
-                dt5 = Variable('dt5', dtype=np.int16, initial=0, to_write=True)
+                i5 = Variable('i5', dtype=np.uint16, initial=0, to_write=True)
+                ts5 = Variable('ts5', dtype=np.uint16, initial=0, to_write=True)
+                dt5 = Variable('dt5', dtype=np.uint16, initial=0, to_write=True)
 
-                i6 = Variable('i6', dtype=np.int32, initial=0, to_write=True)
-                ts6 = Variable('ts6', dtype=np.int16, initial=0, to_write=True)
-                dt6 = Variable('dt6', dtype=np.int16, initial=0, to_write=True)
+                i6 = Variable('i6', dtype=np.uint16, initial=0, to_write=True)
+                ts6 = Variable('ts6', dtype=np.uint16, initial=0, to_write=True)
+                dt6 = Variable('dt6', dtype=np.uint16, initial=0, to_write=True)
 
-                i7 = Variable('i7', dtype=np.int32, initial=0, to_write=True)
-                ts7 = Variable('ts7', dtype=np.int16, initial=0, to_write=True)
-                dt7 = Variable('dt7', dtype=np.int16, initial=0, to_write=True)
+                i7 = Variable('i7', dtype=np.uint16, initial=0, to_write=True)
+                ts7 = Variable('ts7', dtype=np.uint16, initial=0, to_write=True)
+                dt7 = Variable('dt7', dtype=np.uint16, initial=0, to_write=True)
 
-                i8 = Variable('i8', dtype=np.int32, initial=0, to_write=True)
-                ts8 = Variable('ts8', dtype=np.int16, initial=0, to_write=True)
-                dt8 = Variable('dt8', dtype=np.int16, initial=0, to_write=True)
+                i8 = Variable('i8', dtype=np.uint16, initial=0, to_write=True)
+                ts8 = Variable('ts8', dtype=np.uint16, initial=0, to_write=True)
+                dt8 = Variable('dt8', dtype=np.uint16, initial=0, to_write=True)
 
-                i9 = Variable('i9', dtype=np.int32, initial=0, to_write=True)
-                ts9 = Variable('ts9', dtype=np.int16, initial=0, to_write=True)
-                dt9 = Variable('dt9', dtype=np.int16, initial=0, to_write=True)
+                i9 = Variable('i9', dtype=np.uint16, initial=0, to_write=True)
+                ts9 = Variable('ts9', dtype=np.uint16, initial=0, to_write=True)
+                dt9 = Variable('dt9', dtype=np.uint16, initial=0, to_write=True)
 
-                i10 = Variable('i10', dtype=np.int32, initial=0, to_write=True)
-                ts10 = Variable('ts10', dtype=np.int16, initial=0, to_write=True)
-                dt10 = Variable('dt10', dtype=np.int16, initial=0, to_write=True)
+                i10 = Variable('i10', dtype=np.uint16, initial=0, to_write=True)
+                ts10 = Variable('ts10', dtype=np.uint16, initial=0, to_write=True)
+                dt10 = Variable('dt10', dtype=np.uint16, initial=0, to_write=True)
 
-                i11 = Variable('i11', dtype=np.int32, initial=0, to_write=True)
-                ts11 = Variable('ts11', dtype=np.int16, initial=0, to_write=True)
-                dt11 = Variable('dt11', dtype=np.int16, initial=0, to_write=True)
+                i11 = Variable('i11', dtype=np.uint16, initial=0, to_write=True)
+                ts11 = Variable('ts11', dtype=np.uint16, initial=0, to_write=True)
+                dt11 = Variable('dt11', dtype=np.uint16, initial=0, to_write=True)
 
-                i12 = Variable('i12', dtype=np.int32, initial=0, to_write=True)
-                ts12 = Variable('ts12', dtype=np.int16, initial=0, to_write=True)
-                dt12 = Variable('dt12', dtype=np.int16, initial=0, to_write=True)
+                i12 = Variable('i12', dtype=np.uint16, initial=0, to_write=True)
+                ts12 = Variable('ts12', dtype=np.uint16, initial=0, to_write=True)
+                dt12 = Variable('dt12', dtype=np.uint16, initial=0, to_write=True)
 
-                i13 = Variable('i13', dtype=np.int32, initial=0, to_write=True)
-                ts13 = Variable('ts13', dtype=np.int16, initial=0, to_write=True)
-                dt13 = Variable('dt13', dtype=np.int16, initial=0, to_write=True)
+                i13 = Variable('i13', dtype=np.uint16, initial=0, to_write=True)
+                ts13 = Variable('ts13', dtype=np.uint16, initial=0, to_write=True)
+                dt13 = Variable('dt13', dtype=np.uint16, initial=0, to_write=True)
 
-                i14 = Variable('i14', dtype=np.int32, initial=0, to_write=True)
-                ts14 = Variable('ts14', dtype=np.int16, initial=0, to_write=True)
-                dt14 = Variable('dt14', dtype=np.int16, initial=0, to_write=True)
+                i14 = Variable('i14', dtype=np.uint16, initial=0, to_write=True)
+                ts14 = Variable('ts14', dtype=np.uint16, initial=0, to_write=True)
+                dt14 = Variable('dt14', dtype=np.uint16, initial=0, to_write=True)
 
-                i15 = Variable('i15', dtype=np.int32, initial=0, to_write=True)
-                ts15 = Variable('ts15', dtype=np.int16, initial=0, to_write=True)
-                dt15 = Variable('dt15', dtype=np.int16, initial=0, to_write=True)
+                i15 = Variable('i15', dtype=np.uint16, initial=0, to_write=True)
+                ts15 = Variable('ts15', dtype=np.uint16, initial=0, to_write=True)
+                dt15 = Variable('dt15', dtype=np.uint16, initial=0, to_write=True)
 
-                i16 = Variable('i16', dtype=np.int32, initial=0, to_write=True)
-                ts16 = Variable('ts16', dtype=np.int16, initial=0, to_write=True)
-                dt16 = Variable('dt16', dtype=np.int16, initial=0, to_write=True)
+                i16 = Variable('i16', dtype=np.uint16, initial=0, to_write=True)
+                ts16 = Variable('ts16', dtype=np.uint16, initial=0, to_write=True)
+                dt16 = Variable('dt16', dtype=np.uint16, initial=0, to_write=True)
 
-                i17 = Variable('i17', dtype=np.int32, initial=0, to_write=True)
-                ts17 = Variable('ts17', dtype=np.int16, initial=0, to_write=True)
-                dt17 = Variable('dt17', dtype=np.int16, initial=0, to_write=True)
+                i17 = Variable('i17', dtype=np.uint16, initial=0, to_write=True)
+                ts17 = Variable('ts17', dtype=np.uint16, initial=0, to_write=True)
+                dt17 = Variable('dt17', dtype=np.uint16, initial=0, to_write=True)
 
-                i18 = Variable('i18', dtype=np.int32, initial=0, to_write=True)
-                ts18 = Variable('ts18', dtype=np.int16, initial=0, to_write=True)
-                dt18 = Variable('dt18', dtype=np.int16, initial=0, to_write=True)
+                i18 = Variable('i18', dtype=np.uint16, initial=0, to_write=True)
+                ts18 = Variable('ts18', dtype=np.uint16, initial=0, to_write=True)
+                dt18 = Variable('dt18', dtype=np.uint16, initial=0, to_write=True)
 
-                i19 = Variable('i19', dtype=np.int32, initial=0, to_write=True)
-                ts19 = Variable('ts19', dtype=np.int16, initial=0, to_write=True)
-                dt19 = Variable('dt19', dtype=np.int16, initial=0, to_write=True)
+                i19 = Variable('i19', dtype=np.uint16, initial=0, to_write=True)
+                ts19 = Variable('ts19', dtype=np.uint16, initial=0, to_write=True)
+                dt19 = Variable('dt19', dtype=np.uint16, initial=0, to_write=True)
 
                 ##################################################################
                 # TEMPORARY TESTING VARIABLES ####################################
@@ -957,10 +970,10 @@ class Experiment():
                 particle.ot += 1
 
                 # 2 Assess reef status
-                particle.idx = fieldset.coral_idx_c[particle]
+                particle.idx = fieldset.reef_idx_c[particle]
 
                 # TESTING ONLY ############################################
-                particle.rf = fieldset.coral_frac_c[particle]
+                particle.rf = fieldset.reef_frac_c[particle]
                 particle.rf = particle.rf*particle.fc # Hack to make code more concise
                 ###########################################################
 
@@ -1009,7 +1022,7 @@ class Experiment():
                         # TESTING ONLY ############################################
                         particle.Ns = particle.Ns + (particle.rf*fieldset.ls*particle.N*particle.dt)
                         particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
-                        particle.N  = particle.N - ((particle.rf*ls + fieldset.lm)*particle.N*particle.dt)
+                        particle.N  = particle.N - ((particle.rf*fieldset.ls + fieldset.lm)*particle.N*particle.dt)
                         ###########################################################
 
                         # If event has not been triggered, create a new event
@@ -1218,7 +1231,7 @@ class Experiment():
                 particle.ot += 1
 
                 # 2 Assess reef status
-                particle.idx = fieldset.coral_idx_c[particle]
+                particle.idx = fieldset.reef_idx_c[particle]
 
                 save_event = False
                 new_event = False
@@ -1425,17 +1438,65 @@ class Experiment():
         self.status['run'] = True
 
 
+    def generate_dict(self):
+        """
+        Generate a dict to convert cell indices to reef cover, reef fraction, etc.
+
+        """
+
+        if not self.status['config']:
+            raise Exception('Please run config first.')
+
+        if not self.status['fieldset']:
+            # Load fields
+            self.fh['grid'] = self.dirs['grid'] + self.cfg['grid_filename']
+            self.fields = {}
+
+            self.field_list = ['rc', 'rf', 'eez', 'grp', 'idx']
+
+            with Dataset(self.fh['grid'], mode='r') as nc:
+                for field in self.field_list:
+                    field_varname = self.cfg['grid_' + field + '_varname']
+                    self.fields[field] = nc.variables[field_varname][:]
+
+        self.dicts = {}
+
+        # Firstly generate list of indices
+        index_list = []
+        for (yidx, xidx) in zip(np.ma.nonzero(self.fields['idx'])[0],
+                                np.ma.nonzero(self.fields['idx'])[1]):
+
+            index_list.append(self.fields['idx'][yidx, xidx])
+
+        # Now generate dictionaries
+        for field in self.field_list:
+            if field != 'idx':
+                temp_list = []
+
+                for (yidx, xidx) in zip(np.ma.nonzero(self.fields['idx'])[0],
+                                        np.ma.nonzero(self.fields['idx'])[1]):
+
+                    temp_list.append(self.fields[field][yidx, xidx])
+                    self.dicts[field] = dict(zip(index_list, temp_list))
+                    self.dicts[field][0] = -999
+
+
+        # Create dictionary to translate group -> number of cells in group
+        grp_key, grp_val = np.unique(self.fields['grp'].compressed(),return_counts=True)
+        self.dicts['grp_numcell'] = dict(zip(grp_key, grp_val))
+
+        self.status['dict'] = True
+
+
     def postrun_tests(self):
         """
         This function carries out a test for the accuracy of the events kernels
         or a close-up look of particle trajectories with respect to the model
         grid.
-        (Note that this is inefficient legacy code, but it does work)
 
         The kernel function calculates the 'online' settling numbers from the
-        test event kernel, and compares them to the analytical 'offline'
-        numbers. If the offline analytical form works, the difference between
-        the two should approach 0 as dt approaches 0.
+        test event kernel, and compares them to the postprocessed 'offline'
+        numbers.
 
         """
 
@@ -1478,10 +1539,9 @@ class Experiment():
                 ts0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint32)
                 dts_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint32)
 
-                cf_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
-                fc_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
-                ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
-                ns_test_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                fr_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32) # Fraction of reef
+                ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32) # Number/proportion settling
+                ns_test_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32) # Number/proportion settling from test kernel
 
                 for i in range(self.cfg['max_events']):
                     idx_array[:, i] = nc.variables['i' + str(i)][:, 0]
@@ -1491,7 +1551,7 @@ class Experiment():
 
             mask = (idx_array == 0)
 
-            # Now generate an array containing the coral fraction for each index
+            # Now generate an array containing the reef fraction for each index
             def translate(a, d):
                 # Adapted from Maxim's excellent suggestion:
                 # https://stackoverflow.com/questions/16992713/translate-every-element-in-numpy-array-according-to-key
@@ -1500,25 +1560,27 @@ class Experiment():
                 d_array[src] = values
                 return d_array[a]
 
-            cf_array = translate(idx_array, self.dicts['cf'])
-            cf_array = np.ma.masked_array(cf_array, mask=mask)
-            ts0_array = np.ma.masked_array(ts0_array, mask=mask)
-            dts_array = np.ma.masked_array(dts_array, mask=mask)
-
-            # Calculate competency (mid-points)
-            fc_array = 1/(1+np.exp(-kc*(ts0_array+(0.5*dts_array)-tc)))
+            fr_array = translate(idx_array, self.dicts['rf'])
+            fr_array = np.ma.masked_array(fr_array, mask=mask)   # Reef fraction
+            ts0_array = np.ma.masked_array(ts0_array, mask=mask) # Time at arrival
+            dts_array = np.ma.masked_array(dts_array, mask=mask) # Time at site
 
             # Now calculate the fractional losses
             for i in range(self.cfg['max_events']):
                 if i == 0:
-                    phi = np.zeros((n_traj,), dtype=np.float32)
+                    psi0 = np.zeros((n_traj,), dtype=np.float32)
 
-                coeff = (ls*cf_array[:, i]*fc_array[:, i])/(lm+(ls*cf_array[:, i]*fc_array[:, i]))
-                n0 = np.exp((-ls*phi)-(ts0_array[:, i]*lm))
-                n1 = np.exp((-ls*(phi+(cf_array[:, i]*fc_array[:, i]*dts_array[:, i])))-(lm*(ts0_array[:, i]+dts_array[:, i])))
+                fri = fr_array[:, i]
+                ts0 = ts0_array[:, i]
+                dts = dts_array[:, i]
 
-                ns_array[:, i] = -coeff*(n1-n0)
-                phi = phi + cf_array[:, i]*fc_array[:, i]*dts_array[:, i]
+                n0 = 1
+
+                k1 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0)[0]
+                k23 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0.5*dts)[0]
+                k4, psi0 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, dts)
+
+                ns_array[:, i] = dts*ls*fri*((k1/6)+(2*k23/3)+(k4/6))
 
             ns_array = np.ma.masked_array(ns_array, mask=mask)
             ns_test_array = np.ma.masked_array(ns_test_array, mask=mask)
@@ -1612,56 +1674,6 @@ class Experiment():
                 plt.savefig(self.dirs['fig'] + 'trajectory_test.png', dpi=300)
 
 
-    def generate_dict(self):
-        """
-        Generate a dict to convert cell indices to coral cover, coral fraction, etc.
-
-        """
-
-        if not self.status['config']:
-            raise Exception('Please run config first.')
-
-        if not self.status['fieldset']:
-            # Load fields
-            self.fh['grid'] = self.dirs['grid'] + self.cfg['grid_filename']
-            self.fields = {}
-
-            self.field_list = ['cc', 'cf', 'eez', 'grp', 'idx']
-
-            with Dataset(self.fh['grid'], mode='r') as nc:
-                for field in self.field_list:
-                    field_varname = self.cfg['grid_' + field + '_varname']
-                    self.fields[field] = nc.variables[field_varname][:]
-
-        self.dicts = {}
-
-        # Firstly generate list of indices
-        index_list = []
-        for (yidx, xidx) in zip(np.ma.nonzero(self.fields['idx'])[0],
-                                np.ma.nonzero(self.fields['idx'])[1]):
-
-            index_list.append(self.fields['idx'][yidx, xidx])
-
-        # Now generate dictionaries
-        for field in self.field_list:
-            if field != 'idx':
-                temp_list = []
-
-                for (yidx, xidx) in zip(np.ma.nonzero(self.fields['idx'])[0],
-                                        np.ma.nonzero(self.fields['idx'])[1]):
-
-                    temp_list.append(self.fields[field][yidx, xidx])
-                    self.dicts[field] = dict(zip(index_list, temp_list))
-                    self.dicts[field][0] = -999
-
-
-        # Create dictionary to translate group -> number of cells in group
-        grp_key, grp_val = np.unique(self.fields['grp'].compressed(),return_counts=True)
-        self.dicts['grp_numcell'] = dict(zip(grp_key, grp_val))
-
-        self.status['dict'] = True
-
-
     def to_dataframe(self, **kwargs):
 
         """
@@ -1682,15 +1694,10 @@ class Experiment():
         if 'parameters' not in kwargs.keys():
             raise KeyError('Please supply a parameters dictionary.')
         else:
-            lm = kwargs['parameters']['lm']
-            ls = kwargs['parameters']['ls']
-
-            if 'tc' in kwargs['parameters']:
-                adv_competency = True
-                tc = kwargs['parameters']['tc']
-                kc = kwargs['parameters']['kc']
-            else:
-                adv_competency = False
+            lm = np.array(kwargs['parameters']['lm'], dtype=np.float32)
+            ls = np.array(kwargs['parameters']['ls'], dtype=np.float32)
+            tc = np.array(kwargs['parameters']['tc'], dtype=np.float32)
+            kc = np.array(kwargs['parameters']['kc'], dtype=np.float32)
 
         if 'dt' in self.cfg.keys():
             dt = self.cfg['dt'].total_seconds()
@@ -1707,6 +1714,15 @@ class Experiment():
 
         if 'rpm' not in self.cfg.keys():
             raise KeyError('Please supply the number of separate releases per month in config.')
+
+        # Define translation function
+        def translate(a, d):
+            # Adapted from Maxim's suggestion:
+            # https://stackoverflow.com/questions/16992713/translate-every-element-in-numpy-array-according-to-key
+            src, values = np.array(list(d.keys()), dtype=np.uint16), np.array(list(d.values()), dtype=np.float32)
+            d_array = np.zeros((src.max()+1), dtype=np.float32)
+            d_array[src] = values
+            return d_array[a]
 
         # Get files
         fh_list = sorted(glob(self.dirs['traj'] + kwargs['fh']))
@@ -1749,43 +1765,43 @@ class Experiment():
                 dts_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
                 idx0_array = np.zeros((n_traj,), dtype=np.uint16)
 
-                cf_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                rf_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
                 ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
 
                 for i in range(self.cfg['max_events']):
                     idx_array[:, i] = nc.variables['i' + str(i)][:, 0]
-                    ts0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*dt
-                    dts_array[:, i] = nc.variables['dt' + str(i)][:, 0]*dt
+                    ts0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*dt # Time at arrival
+                    dts_array[:, i] = nc.variables['dt' + str(i)][:, 0]*dt # Time at site
 
                 mask = (idx_array == 0)
 
                 # Load remaining required variables
                 idx0_array = nc.variables['idx0'][:]
 
-            # Now generate an array containing the coral fraction for each index
-            def translate(a, d):
-                # Adapted from Maxim's excellent suggestion:
-                # https://stackoverflow.com/questions/16992713/translate-every-element-in-numpy-array-according-to-key
-                src, values = np.array(list(d.keys()), dtype=np.uint16), np.array(list(d.values()), dtype=np.float32)
-                d_array = np.zeros((src.max()+1), dtype=np.float32)
-                d_array[src] = values
-                return d_array[a]
+            # Now generate an array containing the reef fraction for each index
+            rf_array = translate(idx_array, self.dicts['rf'])
+            rf_array = np.ma.masked_array(rf_array, mask=mask)
 
-            cf_array = translate(idx_array, self.dicts['cf'])
-            cf_array = np.ma.masked_array(cf_array, mask=mask)
+            ts0_array = np.ma.masked_array(ts0_array, mask=mask)
+            dts_array = np.ma.masked_array(dts_array, mask=mask)
 
-            # Now calculate the fractional losses
+            time0 = timer.time()
             for i in range(self.cfg['max_events']):
                 if i == 0:
-                    phi = np.zeros((n_traj,), dtype=np.float32)
+                    psi0 = np.zeros((n_traj,), dtype=np.float32)
 
-                coeff = (ls*cf_array[:, i])/(lm+(ls*cf_array[:, i]))
-                n0 = np.exp((-ls*phi)-(ts0_array[:, i]*lm))
-                n1 = np.exp((-ls*(phi+(cf_array[:, i]*dts_array[:, i])))-(lm*(ts0_array[:, i]+dts_array[:, i])))
+                fri = rf_array[:, i]
+                ts0 = ts0_array[:, i].astype(np.float32)
+                dts = dts_array[:, i].astype(np.float32)
 
-                ns_array[:, i] = -coeff*(n1-n0)
-                phi = phi + cf_array[:, i]*dts_array[:, i]
+                k1 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0)[0]
+                k23 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0.5*dts)[0]
+                k4, psi0 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, dts)
 
+                ns_array[:, i] = dts*ls*fri*((k1/6)+(2*k23/3)+(k4/6))
+
+            print(timer.time()-time0)
+            time0 = timer.time()
             ns_array = np.ma.masked_array(ns_array, mask=mask)
 
             # From the index array, extract group
@@ -1798,12 +1814,12 @@ class Experiment():
             grp0_array[:] = grp0
             grp0_array = np.ma.masked_array(grp0_array, mask=mask)
 
-            # Obtain origin coral cover as a proxy for total larval number and project
-            cc0 = translate(idx0_array, self.dicts['cc'])
-            cc0_array = np.zeros_like(idx_array, dtype=np.int32)
-            cc0_array[:] = cc0
-            cc0_array = np.ma.masked_array(cc0_array, mask=mask)
-            cc0_array = cc0_array/self.cfg['lpc']
+            # Obtain origin reef cover as a proxy for total larval number and project
+            rc0 = translate(idx0_array, self.dicts['rc'])
+            rc0_array = np.zeros_like(idx_array, dtype=np.int32)
+            rc0_array[:] = rc0
+            rc0_array = np.ma.masked_array(rc0_array, mask=mask)
+            rc0_array = rc0_array/self.cfg['lpc']
 
             # Obtain number of larvae released in group for larval fraction and project
             lf0 = translate(grp0_array, self.dicts['grp_numcell'])
@@ -1815,7 +1831,7 @@ class Experiment():
             settling_larvae_frac = lf0_array*ns_array
 
             # Convert fractional settling larvae to absolute number of settling, assuming num_released propto reef area
-            settling_larvae = cc0_array*ns_array
+            settling_larvae = rc0_array*ns_array
 
             # Now insert into DataFrame
             frame = pd.DataFrame(data=grp0_array.compressed(), columns=['source_group'])
@@ -1829,6 +1845,13 @@ class Experiment():
             frame.astype({'settling_larval_num': 'float32',
                           'release_year': 'int16',
                           'release_month': 'int8'})
+
+            data_list.append(frame)
+            print(timer.time()-time0)
+
+        data = pd.concat(data_list, axis=0)
+        self.data = data
+
 
             # if kwargs['matrix']:
             #     grp_list = np.array([1, 3, 4, 5, 8, 11, 14, 15, 2, 6, 7, 9, 10, 12, 13, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 16, 22, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38])
