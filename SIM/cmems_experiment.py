@@ -22,7 +22,7 @@ dirs['fig'] = dirs['root'] + 'FIGURES/'
 dirs['traj'] = dirs['root'] + 'TRAJ/'
 
 # PARAMETERS
-pn_per_cell = 100
+pn_per_cell = 4
 t0          = datetime(year=1993, month=1, day=1, hour=0)
 dt          = timedelta(hours=0.1)
 run_time    = timedelta(days=120)
@@ -37,7 +37,7 @@ test_params = {'ls': 1e-5, 'lm': 8e-7, 'tc': 6e5, 'kc': 1e-5}
 experiment = Experiment()
 
 # Run experiment
-experiment.config(dirs, preset='CMEMS', test_params=test_params)
+experiment.config(dirs, preset='CMEMS', test_params=test_params, scheme='mp')
 experiment.generate_fieldset(interp_method='freeslip')
 experiment.generate_particleset(num=pn_per_cell, t0=t0, filters={'eez': [690]},
                                 min_competency=timedelta(days=2),
@@ -47,7 +47,7 @@ experiment.generate_particleset(num=pn_per_cell, t0=t0, filters={'eez': [690]},
 experiment.run(fh='example_experiment.nc')
 
 # Analyse output
-# experiment.postrun_tests()
+experiment.postrun_tests()
 
 
 

@@ -13,6 +13,7 @@ from netCDF4 import Dataset, num2date
 from datetime import datetime, timedelta
 from sys import argv
 from coralsim import Experiment
+import time as timer
 
 ##############################################################################
 # DEFINE INPUT FILES                                                         #
@@ -52,18 +53,8 @@ sey = Experiment()
 sey.config(dirs, preset='CMEMS', dt=timedelta(hours=1),
            releases_per_month=1, larvae_per_cell=6400)
 sey.generate_dict()
+time0 = timer.time()
 sey.to_dataframe(fh='cmems6400*', parameters=parameters)
+print(timer.time()-time0)
 
-# # Generate dictionaries
-# sey.generate_dict(fh['grid'],
-#                                 idx_varname='coral_idx_c',
-#                                 cf_varname='coral_frac_c',
-#                                 cc_varname='coral_cover_c',
-#                                 grp_varname='coral_grp_c',)
 
-# seychelles_output.to_dataframe(fh['traj'], lm=lm, ls=ls, dt=3600.,
-#                                lpc=6400, rpm=3, matrix=True)
-
-# # seychelles_output.data.to_pickle(fh['out'])
-
-# seychelles_output.export_matrix(fh['fig'], scheme='seychelles', n_years=27)

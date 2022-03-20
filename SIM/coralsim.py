@@ -24,7 +24,6 @@ from netCDF4 import Dataset
 from datetime import timedelta, datetime
 from tqdm import tqdm
 from numba import njit
-import time as timer
 
 
 class Experiment():
@@ -174,11 +173,15 @@ class Experiment():
         @njit(parallel=True)
         def ode(fri, psi0, ls, lm, kc, tc, t, h):
             # To change the mortality curve, you need to modify this part of
-            # the code!
+            # the code! lambda_t = int_0^t lambda_m(t) dt
+
+            lambda_t = lm*(t+h)
+
+            #################### DO NOT MODIFY BELOW HERE #####################
 
             psi1 = psi0 + (fri/kc)*(np.log(1+np.exp(kc*(t+h-tc))) - np.log(1+np.exp(kc*(t-tc))))
 
-            return np.exp(-(ls*psi1)-(lm*(t+h)))/(1+np.exp(-kc*(t+h-tc))), psi1
+            return np.exp(-(ls*psi1)-(lambda_t))/(1+np.exp(-kc*(t+h-tc))), psi1
 
         self.ode = ode
 
@@ -1574,13 +1577,13 @@ class Experiment():
                 ts0 = ts0_array[:, i]
                 dts = dts_array[:, i]
 
-                n0 = 1
-
-                k1 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0)[0]
-                k23 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0.5*dts)[0]
-                k4, psi0 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, dts)
-
-                ns_array[:, i] = dts*ls*fri*((k1/6)+(2*k23/3)+(k4/6))
+                if self.cfg['scheme'] == 'rk4':
+                    k1 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0)[0]
+                    k23 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0.5*dts)[0]
+                    k4, psi0 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, dts)
+                    ns_array[:, i] = dts*ls*fri*((k1/6)+(2*k23/3)+(k4/6))
+                else:
+                    ns_array[:, i], psi0 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, dts)
 
             ns_array = np.ma.masked_array(ns_array, mask=mask)
             ns_test_array = np.ma.masked_array(ns_test_array, mask=mask)
@@ -1593,6 +1596,7 @@ class Experiment():
             f, ax = plt.subplots(1, 1, figsize=(10, 10))
 
             xarg_max = np.max(np.abs(pct_diff[np.isfinite(pct_diff)]))
+            xarg_max = np.min([xarg_max, 5])
             ax.set_xlim([-xarg_max, xarg_max])
             ax.set_xlabel('Percentage difference between analytical and online settling fluxes')
             ax.set_ylabel('Number of events')
@@ -1785,7 +1789,6 @@ class Experiment():
             ts0_array = np.ma.masked_array(ts0_array, mask=mask)
             dts_array = np.ma.masked_array(dts_array, mask=mask)
 
-            time0 = timer.time()
             for i in range(self.cfg['max_events']):
                 if i == 0:
                     psi0 = np.zeros((n_traj,), dtype=np.float32)
@@ -1797,11 +1800,9 @@ class Experiment():
                 k1 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0)[0]
                 k23 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0.5*dts)[0]
                 k4, psi0 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, dts)
-
                 ns_array[:, i] = dts*ls*fri*((k1/6)+(2*k23/3)+(k4/6))
 
-            print(timer.time()-time0)
-            time0 = timer.time()
+
             ns_array = np.ma.masked_array(ns_array, mask=mask)
 
             # From the index array, extract group
@@ -1847,7 +1848,6 @@ class Experiment():
                           'release_month': 'int8'})
 
             data_list.append(frame)
-            print(timer.time()-time0)
 
         data = pd.concat(data_list, axis=0)
         self.data = data
