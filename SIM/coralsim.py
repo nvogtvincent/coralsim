@@ -308,7 +308,6 @@ class Experiment():
                              for release sites
                    plot = 'grp' or 'eez' or None - plots the specified field if
                           not None
-                   plot_fh = File handle to save plot under in figures directory
 
         """
 
@@ -410,11 +409,7 @@ class Experiment():
                 self.cfg['plot'] = True
                 self.cfg['plot_type'] = kwargs['plot']
 
-            if 'plot_fh' not in kwargs.keys():
-                raise KeyError('Plot type not understood. Setting to \'particle.png\'.')
-                self.fh['fig'] = self.dirs['fig'] + 'particle.png'
-            else:
-                self.fh['fig'] = self.dirs['fig'] + kwargs['plot_fh']
+            self.fh['fig'] = self.dirs['fig'] + 'particle_release_pos.png'
 
         else:
             self.cfg['plot'] = False
@@ -1438,6 +1433,18 @@ class Experiment():
         # Export trajectory file
         self.trajectory_file.export()
 
+        # Add timestep and other details to file
+        with Dataset(self.fh['traj'], mode='r+') as nc:
+            nc.timestep_seconds = self.cfg['dt'].total_seconds()
+            nc.min_competency_seconds = self.cfg['min_competency'].total_seconds()
+            nc.max_lifespan_seconds = self.cfg['run_time'].total_seconds()
+            nc.larvae_per_cell = self.cfg['pn2']
+            nc.total_larvae_released = len(self.particles['lon'])
+            nc.interp_method = self.cfg['interp_method']
+
+            if self.cfg['test']:
+                nc.test_mode = 'True'
+
         self.status['run'] = True
 
 
@@ -1577,13 +1584,10 @@ class Experiment():
                 ts0 = ts0_array[:, i]
                 dts = dts_array[:, i]
 
-                if self.cfg['scheme'] == 'rk4':
-                    k1 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0)[0]
-                    k23 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0.5*dts)[0]
-                    k4, psi0 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, dts)
-                    ns_array[:, i] = dts*ls*fri*((k1/6)+(2*k23/3)+(k4/6))
-                else:
-                    ns_array[:, i], psi0 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, dts)
+                k1 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0)[0]
+                k23 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0.5*dts)[0]
+                k4, psi0 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, dts)
+                ns_array[:, i] = dts*ls*fri*((k1/6)+(2*k23/3)+(k4/6))
 
             ns_array = np.ma.masked_array(ns_array, mask=mask)
             ns_test_array = np.ma.masked_array(ns_test_array, mask=mask)
