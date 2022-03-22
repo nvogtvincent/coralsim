@@ -24,7 +24,7 @@ from netCDF4 import Dataset
 from datetime import timedelta, datetime
 from tqdm import tqdm
 from numba import njit
-
+from scipy.integrate import odeint
 
 class Experiment():
     """
@@ -171,17 +171,26 @@ class Experiment():
             self.cfg['test_params'] = kwargs['test_params']
 
         @njit(parallel=True)
-        def ode(fri, psi0, ls, lm, kc, tc, t, h):
-            # To change the mortality curve, you need to modify this part of
-            # the code! lambda_t = int_0^t lambda_m(t) dt
+        def ode(fr, psi0, ls, kc, tc, m1, m2, m3, t0, h):
+            t = t0 + h
 
-            lambda_t = lm*(t+h)
+            #################### DO NOT MODIFY ABOVE HERE #####################
+
+            # func_lambda_t = int_0^t lm(t) dt
+            func_lambda_t = t*((m1*(t**2)/3)-(m1*m2*t)+m1*(m2**2)+m3)
+
+            # func_phi_t = int_t0^t fc(t) dt
+            func_phi_t = (1/kc)*np.log((1+np.exp(kc*(t-tc)))/(1+np.exp(kc*(t0-tc))))
+
+            # func_fc_t = fc(t)
+            func_fc_t = 1/(1+np.exp(-kc*(t-tc)))
 
             #################### DO NOT MODIFY BELOW HERE #####################
 
-            psi1 = psi0 + (fri/kc)*(np.log(1+np.exp(kc*(t+h-tc))) - np.log(1+np.exp(kc*(t-tc))))
+            # func_psi_t = int_0^t fc(t)*fr(t) dt = psi0 + fr*func_phi_t
+            func_psi_t = psi0 + fr*func_phi_t
 
-            return np.exp(-(ls*psi1)-(lambda_t))/(1+np.exp(-kc*(t+h-tc))), psi1
+            return func_fc_t*np.exp((-ls*func_psi_t)-func_lambda_t), func_psi_t
 
         self.ode = ode
 
@@ -789,8 +798,11 @@ class Experiment():
                 # Reef fraction
                 rf = Variable('rf', dtype=np.float32, initial=0., to_write=True)
 
-                # Competency
+                # Fraction competent
                 fc = Variable('fc', dtype=np.float32, initial=0., to_write=True)
+
+                # Mortality rate
+                lm = Variable('lm', dtype=np.float32, initial=0., to_write=True)
 
         else:
             class larva(JITParticle):
@@ -962,6 +974,7 @@ class Experiment():
                 # TESTING ONLY ############################################
                 e = 2.71828
                 particle.fc = 1/(1+e**(-fieldset.kc*((particle.dt*particle.ot)-fieldset.tc)))
+                particle.lm = fieldset.m1*(((particle.ot*particle.dt) - fieldset.m2)**2) + fieldset.m3
                 ###########################################################
 
                 # 1 Keep track of the amount of time spent at sea
@@ -992,7 +1005,7 @@ class Experiment():
 
                             # TESTING ONLY ############################################
                             particle.Ns = particle.Ns + (particle.rf*fieldset.ls*particle.N*particle.dt)
-                            particle.N  = particle.N - ((particle.rf*fieldset.ls + fieldset.lm)*particle.N*particle.dt)
+                            particle.N  = particle.N - ((particle.rf*fieldset.ls + particle.lm)*particle.N*particle.dt)
                             particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
                             ###########################################################
 
@@ -1008,7 +1021,7 @@ class Experiment():
                             # TESTING ONLY ############################################
                             particle.Ns = particle.Ns
                             particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
-                            particle.N  = particle.N - ((particle.rf*fieldset.ls + fieldset.lm)*particle.N*particle.dt)
+                            particle.N  = particle.N - ((particle.rf*fieldset.ls + particle.lm)*particle.N*particle.dt)
                             ###########################################################
 
                             # Otherwise, we need to save the old event and create a new event
@@ -1020,7 +1033,7 @@ class Experiment():
                         # TESTING ONLY ############################################
                         particle.Ns = particle.Ns + (particle.rf*fieldset.ls*particle.N*particle.dt)
                         particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
-                        particle.N  = particle.N - ((particle.rf*fieldset.ls + fieldset.lm)*particle.N*particle.dt)
+                        particle.N  = particle.N - ((particle.rf*fieldset.ls + particle.lm)*particle.N*particle.dt)
                         ###########################################################
 
                         # If event has not been triggered, create a new event
@@ -1034,13 +1047,13 @@ class Experiment():
                         # TESTING ONLY ############################################
                         particle.Ns = particle.Ns
                         particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
-                        particle.N  = particle.N - ((particle.rf*fieldset.ls + fieldset.lm)*particle.N*particle.dt)
+                        particle.N  = particle.N - ((particle.rf*fieldset.ls + particle.lm)*particle.N*particle.dt)
                         ###########################################################
 
                         save_event = True
                     else:
                         # TESTING ONLY ############################################
-                        particle.N  = particle.N - (fieldset.lm*particle.N*particle.dt)
+                        particle.N  = particle.N - (particle.lm*particle.N*particle.dt)
                         ###########################################################
 
 
@@ -1520,10 +1533,13 @@ class Experiment():
             self.generate_dict()
 
         if self.cfg['test_type'] == 'kernel':
-            lm = self.cfg['test_params']['lm']
             ls = self.cfg['test_params']['ls']
             tc = self.cfg['test_params']['tc']
             kc = self.cfg['test_params']['kc']
+
+            m1 = self.cfg['test_params']['m1']
+            m2 = self.cfg['test_params']['m2']
+            m3 = self.cfg['test_params']['m3']
 
             dt = self.cfg['dt'].total_seconds()
 
@@ -1584,9 +1600,9 @@ class Experiment():
                 ts0 = ts0_array[:, i]
                 dts = dts_array[:, i]
 
-                k1 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0)[0]
-                k23 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0.5*dts)[0]
-                k4, psi0 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, dts)
+                k1 = self.ode(fri, psi0, ls, kc, tc, m1, m2, m3, ts0, 0)[0]
+                k23 = self.ode(fri, psi0, ls, kc, tc, m1, m2, m3, ts0, 0.5*dts)[0]
+                k4, psi0 = self.ode(fri, psi0, ls, kc, tc, m1, m2, m3, ts0, dts)
                 ns_array[:, i] = dts*ls*fri*((k1/6)+(2*k23/3)+(k4/6))
 
             ns_array = np.ma.masked_array(ns_array, mask=mask)
