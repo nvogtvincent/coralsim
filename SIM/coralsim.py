@@ -170,27 +170,45 @@ class Experiment():
         if 'test_params' in kwargs.keys():
             self.cfg['test_params'] = kwargs['test_params']
 
-        @njit(parallel=True)
-        def ode(fr, psi0, ls, kc, tc, m1, m2, m3, t0, h):
+        # @njit(parallel=True)
+        # def ode(fr, psi0, ls, kc, tc, m1, m2, m3, t0, h):
+        #     t = t0 + h
+
+        #     #################### DO NOT MODIFY ABOVE HERE #####################
+
+        #     # func_lambda_t = int_0^t lm(t) dt
+        #     func_lambda_t = t*((m1*(t**2)/3)-(m1*m2*t)+m1*(m2**2)+m3)
+
+        #     # func_phi_t = int_t0^t fc(t) dt
+        #     func_phi_t = (1/kc)*np.log((1+np.exp(kc*(t-tc)))/(1+np.exp(kc*(t0-tc))))
+
+        #     # func_fc_t = fc(t)
+        #     func_fc_t = 1/(1+np.exp(-kc*(t-tc)))
+
+        #     #################### DO NOT MODIFY BELOW HERE #####################
+
+        #     # func_psi_t = int_0^t fc(t)*fr(t) dt = psi0 + fr*func_phi_t
+        #     func_psi_t = psi0 + fr*func_phi_t
+
+        #     return func_fc_t*np.exp((-ls*func_psi_t)-func_lambda_t), func_psi_t
+
+        # self.ode = ode
+
+        def ode(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, h):
+
             t = t0 + h
 
-            #################### DO NOT MODIFY ABOVE HERE #####################
+            surv_t = (1 - σ*(λ*(t + tc))**ν)**(1/σ)
+            coef_1 = surv_t*np.exp(-b*t)*np.exp(-μs*(psi0+fr*(t-t0)))
 
-            # func_lambda_t = int_0^t lm(t) dt
-            func_lambda_t = t*((m1*(t**2)/3)-(m1*m2*t)+m1*(m2**2)+m3)
+            coef_2 = np.exp(μs*psi0)/(b-a)
+            term_2 = np.exp(t0*(b-a)) - np.exp(t1_prev*(b-a))
+            coef_3 = np.exp((μs*psi0)-(μs*fr*t0))/(b-a+μs*fr)
+            term_3 = np.exp(t*(b-a+μs*fr)) - np.exp(t0*(b-a+μs*fr))
 
-            # func_phi_t = int_t0^t fc(t) dt
-            func_phi_t = (1/kc)*np.log((1+np.exp(kc*(t-tc)))/(1+np.exp(kc*(t0-tc))))
+            int1 = int0 + coef_2*term_2 + coef_3*term_3
 
-            # func_fc_t = fc(t)
-            func_fc_t = 1/(1+np.exp(-kc*(t-tc)))
-
-            #################### DO NOT MODIFY BELOW HERE #####################
-
-            # func_psi_t = int_0^t fc(t)*fr(t) dt = psi0 + fr*func_phi_t
-            func_psi_t = psi0 + fr*func_phi_t
-
-            return func_fc_t*np.exp((-ls*func_psi_t)-func_lambda_t), func_psi_t
+            return coef_1 * int1, int1
 
         self.ode = ode
 
@@ -550,15 +568,15 @@ class Experiment():
         self.pset.set_variable_write_status('time', 'False')
 
         # Add minimum competency period and maximum age to fieldset
-        self.fieldset.add_constant('min_competency', int(self.cfg['min_competency']/self.cfg['dt']))
+        self.fieldset.add_constant('min_competency', int(timedelta(days=self.cfg['test_params']['tc'])/self.cfg['dt']))
         self.fieldset.add_constant('max_age', int(self.cfg['run_time']/self.cfg['dt']))
         assert self.fieldset.max_age < np.iinfo(np.uint16).max
 
         # Add test parameters to fieldset
         if self.cfg['test']:
             if 'test_params' not in self.cfg.keys():
-                print('Test parameters not supplied, using default values.')
-                self.cfg['test_params'] = {'lm': 8e-7, 'ls': 1e-5, 'tc': 6e5, 'kc' : 1e-5}
+                raise Exception('Test parameters not supplied.')
+                # self.cfg['test_params'] = {'lm': 8e-7, 'ls': 1e-5, 'tc': 6e5, 'kc' : 1e-5}
 
             for key in self.cfg['test_params'].keys():
                 self.fieldset.add_constant(key, self.cfg['test_params'][key])
@@ -767,7 +785,7 @@ class Experiment():
                 ##################################################################
 
                 # Number of larvae represented by particle
-                N = Variable('N', dtype=np.float32, initial=1., to_write=True)
+                # N = Variable('N', dtype=np.float32, initial=1., to_write=True)
 
                 # Larvae lost to sites
                 Ns0 = Variable('Ns0', dtype=np.float32, initial=0., to_write=True)
@@ -792,17 +810,22 @@ class Experiment():
                 Ns19 = Variable('Ns19', dtype=np.float32, initial=0., to_write=True)
 
                 # Number of larvae accumulated in the current reef
-                Ns = Variable('Ns', dtype=np.float32, initial=0., to_write=True)
-                N0 = Variable('N0', dtype=np.float32, initial=0., to_write=True)
+                L1 = Variable('L1', dtype=np.float64, initial=1., to_write=True) # Pre-competent larvae
+                L2 = Variable('L2', dtype=np.float64, initial=0., to_write=True) # Competent larvae
+                L10 = Variable('L10', dtype=np.float64, initial=0., to_write=True) # Pre-competent larvae, frozen at start
+                L20 = Variable('L20', dtype=np.float64, initial=0., to_write=True) # Competent larvae, frozen at start
+                Ns = Variable('Ns', dtype=np.float64, initial=0., to_write=True) # Larvae settling in current/just-passed event
+                Ns_next = Variable('Ns_next', dtype=np.float64, initial=0., to_write=True) # Larvae settling in current event (when event has just ended)
+
+                # Ns = Variable('Ns', dtype=np.float32, initial=0., to_write=True)
+                # N0 = Variable('N0', dtype=np.float32, initial=0., to_write=True)
 
                 # Reef fraction
                 rf = Variable('rf', dtype=np.float32, initial=0., to_write=True)
 
-                # Fraction competent
-                fc = Variable('fc', dtype=np.float32, initial=0., to_write=True)
+                # Mortality coefficient mu_m
+                mm = Variable('mm', dtype=np.float64, initial=0., to_write=True)
 
-                # Mortality rate
-                lm = Variable('lm', dtype=np.float32, initial=0., to_write=True)
 
         else:
             class larva(JITParticle):
@@ -971,12 +994,6 @@ class Experiment():
         if test:
             def event(particle, fieldset, time):
 
-                # TESTING ONLY ############################################
-                e = 2.71828
-                particle.fc = 1/(1+e**(-fieldset.kc*((particle.dt*particle.ot)-fieldset.tc)))
-                particle.lm = fieldset.m1*(((particle.ot*particle.dt) - fieldset.m2)**2) + fieldset.m3
-                ###########################################################
-
                 # 1 Keep track of the amount of time spent at sea
                 particle.ot += 1
 
@@ -984,8 +1001,12 @@ class Experiment():
                 particle.idx = fieldset.reef_idx_c[particle]
 
                 # TESTING ONLY ############################################
+                # Calculate current mortality rate
+                particle.mm = (fieldset.lam*fieldset.nu)*((fieldset.lam*particle.ot*particle.dt)**(fieldset.nu-1))/(1-fieldset.sig*((fieldset.lam*particle.ot*particle.dt)**fieldset.nu))
+                particle.L10 = particle.L1
+                particle.L20 = particle.L2
+
                 particle.rf = fieldset.reef_frac_c[particle]
-                particle.rf = particle.rf*particle.fc # Hack to make code more concise
                 ###########################################################
 
                 save_event = False
@@ -1004,9 +1025,9 @@ class Experiment():
                             particle.current_reef_ts += 1
 
                             # TESTING ONLY ############################################
-                            particle.Ns = particle.Ns + (particle.rf*fieldset.ls*particle.N*particle.dt)
-                            particle.N  = particle.N - ((particle.rf*fieldset.ls + particle.lm)*particle.N*particle.dt)
-                            particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
+                            particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
+                            particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm + fieldset.ms*particle.rf)*particle.L20)*particle.dt
+                            particle.Ns = particle.Ns + fieldset.ms*particle.rf*particle.L20*particle.dt
                             ###########################################################
 
                             # But also check that the particle isn't about to expire (save if so)
@@ -1019,9 +1040,10 @@ class Experiment():
                         else:
 
                             # TESTING ONLY ############################################
+                            particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
+                            particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm + fieldset.ms*particle.rf)*particle.L20)*particle.dt
                             particle.Ns = particle.Ns
-                            particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
-                            particle.N  = particle.N - ((particle.rf*fieldset.ls + particle.lm)*particle.N*particle.dt)
+                            particle.Ns_next = fieldset.ms*particle.rf*particle.L20*particle.dt
                             ###########################################################
 
                             # Otherwise, we need to save the old event and create a new event
@@ -1031,9 +1053,9 @@ class Experiment():
                     else:
 
                         # TESTING ONLY ############################################
-                        particle.Ns = particle.Ns + (particle.rf*fieldset.ls*particle.N*particle.dt)
-                        particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
-                        particle.N  = particle.N - ((particle.rf*fieldset.ls + particle.lm)*particle.N*particle.dt)
+                        particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
+                        particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm + fieldset.ms*particle.rf)*particle.L20)*particle.dt
+                        particle.Ns_next = fieldset.ms*particle.rf*particle.L20*particle.dt
                         ###########################################################
 
                         # If event has not been triggered, create a new event
@@ -1042,18 +1064,25 @@ class Experiment():
                 else:
 
                     # Otherwise, check if ongoing event has just ended
-                    if particle.current_reef_ts > 0:
+                    if particle.current_reef_ts > 0 and particle.ot > fieldset.min_competency:
 
                         # TESTING ONLY ############################################
-                        particle.Ns = particle.Ns
-                        particle.N0 = particle.rf*fieldset.ls*particle.N*particle.dt
-                        particle.N  = particle.N - ((particle.rf*fieldset.ls + particle.lm)*particle.N*particle.dt)
+                        particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
+                        particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm + fieldset.ms*particle.rf)*particle.L20)*particle.dt
+                        particle.Ns = particle.Ns + fieldset.ms*particle.rf*particle.L20*particle.dt
                         ###########################################################
 
                         save_event = True
+
+                    elif particle.ot > fieldset.min_competency:
+                        # TESTING ONLY ############################################
+                        particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
+                        particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm)*particle.L20)*particle.dt
+                        ###########################################################
+
                     else:
                         # TESTING ONLY ############################################
-                        particle.N  = particle.N - (particle.lm*particle.N*particle.dt)
+                        particle.L1 = particle.L10 - (particle.mm)*particle.L10*particle.dt
                         ###########################################################
 
 
@@ -1225,7 +1254,7 @@ class Experiment():
                     particle.current_reef_idx = particle.idx
 
                     # TESTING ONLY ############################################
-                    particle.Ns = particle.N0
+                    particle.Ns = particle.Ns_next
                     ###########################################################
 
                 # Finally, check if particle needs to be deleted
@@ -1533,13 +1562,13 @@ class Experiment():
             self.generate_dict()
 
         if self.cfg['test_type'] == 'kernel':
-            ls = self.cfg['test_params']['ls']
-            tc = self.cfg['test_params']['tc']
-            kc = self.cfg['test_params']['kc']
-
-            m1 = self.cfg['test_params']['m1']
-            m2 = self.cfg['test_params']['m2']
-            m3 = self.cfg['test_params']['m3']
+            a = self.cfg['test_params']['a']
+            b = self.cfg['test_params']['b']
+            tc = self.cfg['test_params']['tc']*3600*24
+            μs = self.cfg['test_params']['ms']
+            σ = self.cfg['test_params']['sig']
+            λ = self.cfg['test_params']['lam']
+            ν = self.cfg['test_params']['nu']
 
             dt = self.cfg['dt'].total_seconds()
 
@@ -1562,8 +1591,8 @@ class Experiment():
 
                 # Load all data into memory
                 idx_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
-                ts0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint32)
-                dts_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint32)
+                t0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint32)
+                dt_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint32)
 
                 fr_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32) # Fraction of reef
                 ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32) # Number/proportion settling
@@ -1571,8 +1600,8 @@ class Experiment():
 
                 for i in range(self.cfg['max_events']):
                     idx_array[:, i] = nc.variables['i' + str(i)][:, 0]
-                    ts0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*dt
-                    dts_array[:, i] = nc.variables['dt' + str(i)][:, 0]*dt
+                    t0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*dt - tc
+                    dt_array[:, i] = nc.variables['dt' + str(i)][:, 0]*dt
                     ns_test_array[:, i] = nc.variables['Ns' + str(i)][:, 0]
 
             mask = (idx_array == 0)
@@ -1588,22 +1617,29 @@ class Experiment():
 
             fr_array = translate(idx_array, self.dicts['rf'])
             fr_array = np.ma.masked_array(fr_array, mask=mask)   # Reef fraction
-            ts0_array = np.ma.masked_array(ts0_array, mask=mask) # Time at arrival
-            dts_array = np.ma.masked_array(dts_array, mask=mask) # Time at site
+            t0_array = np.ma.masked_array(t0_array, mask=mask) # Time at arrival
+            dt_array = np.ma.masked_array(dt_array, mask=mask) # Time at site
 
             # Now calculate the fractional losses
             for i in range(self.cfg['max_events']):
                 if i == 0:
                     psi0 = np.zeros((n_traj,), dtype=np.float32)
+                    int0 = np.zeros((n_traj,), dtype=np.float32)
+                    t1_prev = np.zeros((n_traj,), dtype=np.float32)
 
-                fri = fr_array[:, i]
-                ts0 = ts0_array[:, i]
-                dts = dts_array[:, i]
+                fr = fr_array[:, i]
+                t0 = t0_array[:, i]
+                dt = dt_array[:, i]
 
-                k1 = self.ode(fri, psi0, ls, kc, tc, m1, m2, m3, ts0, 0)[0]
-                k23 = self.ode(fri, psi0, ls, kc, tc, m1, m2, m3, ts0, 0.5*dts)[0]
-                k4, psi0 = self.ode(fri, psi0, ls, kc, tc, m1, m2, m3, ts0, dts)
-                ns_array[:, i] = dts*ls*fri*((k1/6)+(2*k23/3)+(k4/6))
+                L0 = 1
+
+                k1 = self.ode(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, 0*dt)[0]
+                k23 = self.ode(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, 0.5*dt)[0]
+                k4, int0 = self.ode(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, dt)
+                ns_array[:, i] = L0*a*μs*fr*dt*((k1/6)+(2*k23/3)+(k4/6))
+
+                t1_prev = t0 + dt
+                psi0 = psi0 + fr*dt
 
             ns_array = np.ma.masked_array(ns_array, mask=mask)
             ns_test_array = np.ma.masked_array(ns_test_array, mask=mask)
@@ -1616,7 +1652,7 @@ class Experiment():
             f, ax = plt.subplots(1, 1, figsize=(10, 10))
 
             xarg_max = np.max(np.abs(pct_diff[np.isfinite(pct_diff)]))
-            xarg_max = np.min([xarg_max, 5])
+            xarg_max = np.min([xarg_max, 2000])
             ax.set_xlim([-xarg_max, xarg_max])
             ax.set_xlabel('Percentage difference between analytical and online settling fluxes')
             ax.set_ylabel('Number of events')
