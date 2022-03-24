@@ -24,7 +24,6 @@ from netCDF4 import Dataset
 from datetime import timedelta, datetime
 from tqdm import tqdm
 from numba import njit
-from scipy.integrate import odeint
 
 class Experiment():
     """
@@ -1737,7 +1736,8 @@ class Experiment():
         from mpi4py import MPI
 
         comm = MPI.COMM_WORLD
-        rank = cmm.Get_rank()
+        rank = comm.Get_rank()
+        size = comm.Get_size()
 
         if not self.status['dict']:
             self.generate_dict()
@@ -1821,7 +1821,6 @@ class Experiment():
                     dt_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
                     idx0_array = np.zeros((n_traj,), dtype=np.uint16)
 
-                    rf_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
                     ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
 
                     for i in range(self.cfg['max_events']):
@@ -1836,76 +1835,110 @@ class Experiment():
 
                 # Now generate an array containing the reef fraction, t0, and dt for each index
                 fr_array = translate(idx_array, self.dicts['rf'])
-                fr_array = np.ma.masked_array(rf_array, mask=mask) # Reef fraction
-                t0_array = np.ma.masked_array(t0_array, mask=mask) # Time at arrival
-                dt_array = np.ma.masked_array(dt_array, mask=mask) # Time spent at site
+                # fr_array = np.ma.masked_array(fr_array, mask=mask) # Reef fraction
+                # t0_array = np.ma.masked_array(t0_array, mask=mask) # Time at arrival
+                # dt_array = np.ma.masked_array(dt_array, mask=mask) # Time spent at site
+
+                # Scatter arrays across cores
+                n_traj_per_proc = np.array([len(split) for split in np.array_split(np.zeros_like(idx_array[:, 0]), size)])
+                sendcounts = n_traj_per_proc*self.cfg['max_events']
+                displacements = np.insert(np.cumsum(sendcounts),0,0)[0:-1]
+
+            else:
+                fr_array = None
+                t0_array = None
+                dt_array = None
+                ns_array = None
+                n_traj_per_proc = None
+                sendcounts = None
+                displacements = None
+                mask = None
+
+            # Distribute data across cores
+            sendcounts = comm.bcast(sendcounts, root = 0)
+            displacements = comm.bcast(displacements, root = 0)
+            n_traj_per_proc = comm.bcast(n_traj_per_proc, root = 0)
+
+            fr_array_chunk = np.zeros((n_traj_per_proc[rank], self.cfg['max_events']), dtype=np.float32)
+            t0_array_chunk = np.zeros((n_traj_per_proc[rank], self.cfg['max_events']), dtype=np.float32)
+            dt_array_chunk = np.zeros((n_traj_per_proc[rank], self.cfg['max_events']), dtype=np.float32)
+            ns_array_chunk = np.zeros((n_traj_per_proc[rank], self.cfg['max_events']), dtype=np.float32)
+
+            comm.Scatterv([fr_array, sendcounts, displacements, MPI.FLOAT], fr_array_chunk, root=0)
+            comm.Scatterv([t0_array, sendcounts, displacements, MPI.FLOAT], t0_array_chunk, root=0)
+            comm.Scatterv([dt_array, sendcounts, displacements, MPI.FLOAT], dt_array_chunk, root=0)
+            comm.Scatterv([ns_array, sendcounts, displacements, MPI.FLOAT], ns_array_chunk, root=0)
 
             # Now calculate the fractional losses
             for i in range(self.cfg['max_events']):
                 if i == 0:
-                    psi0 = np.zeros((n_traj,), dtype=np.float32)
-                    int0 = np.zeros((n_traj,), dtype=np.float32)
-                    t1_prev = np.zeros((n_traj,), dtype=np.float32)
+                    psi0 = np.zeros((n_traj_per_proc[rank],), dtype=np.float32)
+                    int0 = np.zeros((n_traj_per_proc[rank],), dtype=np.float32)
+                    t1_prev = np.zeros((n_traj_per_proc[rank],), dtype=np.float32)
 
-                fr = fr_array[:, i]
-                t0 = t0_array[:, i]
-                dt = dt_array[:, i]
+                fr = fr_array_chunk[:, i]
+                t0 = t0_array_chunk[:, i]
+                dt = dt_array_chunk[:, i]
 
                 k1 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, 0*dt)[0]
                 k23 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, 0.5*dt)[0]
                 k4, int0 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, dt)
 
                 c_1 = self.cfg['a']*self.cfg['μs']*fr
-                ns_array[:, i] = c_1*dt*((k1/6)+(2*k23/3)+(k4/6))
+                ns_array_chunk[:, i] = c_1*dt*((k1/6)+(2*k23/3)+(k4/6))
 
                 t1_prev = t0 + dt
                 psi0 = psi0 + fr*dt
 
-            ns_array = np.ma.masked_array(ns_array, mask=mask)
+            comm.Barrier()
+            comm.Gatherv(ns_array_chunk, [ns_array, sendcounts, displacements, MPI.FLOAT], root=0) # Gather output data together
 
-            # From the index array, extract group
-            grp_array = np.floor(idx_array/(2**8)).astype(np.uint8)
-            grp_array = np.ma.masked_array(grp_array, mask=mask)
+            if rank == 0:
+                ns_array = np.ma.masked_array(ns_array, mask=mask)
 
-            # Extract origin group and project
-            grp0 = np.floor(idx0_array/(2**8)).astype(np.uint8)
-            grp0_array = np.zeros_like(idx_array, dtype=np.uint8)
-            grp0_array[:] = grp0
-            grp0_array = np.ma.masked_array(grp0_array, mask=mask)
+            # # From the index array, extract group
+            # grp_array = np.floor(idx_array/(2**8)).astype(np.uint8)
+            # grp_array = np.ma.masked_array(grp_array, mask=mask)
 
-            # Obtain origin reef cover as a proxy for total larval number and project
-            rc0 = translate(idx0_array, self.dicts['rc'])
-            rc0_array = np.zeros_like(idx_array, dtype=np.int32)
-            rc0_array[:] = rc0
-            rc0_array = np.ma.masked_array(rc0_array, mask=mask)
-            rc0_array = rc0_array/self.cfg['lpc']
+            # # Extract origin group and project
+            # grp0 = np.floor(idx0_array/(2**8)).astype(np.uint8)
+            # grp0_array = np.zeros_like(idx_array, dtype=np.uint8)
+            # grp0_array[:] = grp0
+            # grp0_array = np.ma.masked_array(grp0_array, mask=mask)
 
-            # Obtain number of larvae released in group for larval fraction and project
-            lf0 = translate(grp0_array, self.dicts['grp_numcell'])
-            lf0_array = np.zeros_like(idx_array, dtype=np.float32)
-            lf0_array[:] = lf0
-            lf0_array = 1/(self.cfg['lpc']*self.cfg['rpm']*lf0_array)
+            # # Obtain origin reef cover as a proxy for total larval number and project
+            # rc0 = translate(idx0_array, self.dicts['rc'])
+            # rc0_array = np.zeros_like(idx_array, dtype=np.int32)
+            # rc0_array[:] = rc0
+            # rc0_array = np.ma.masked_array(rc0_array, mask=mask)
+            # rc0_array = rc0_array/self.cfg['lpc']
 
-            # Convert fractional settling larvae to proportion of larvae released from source reef in release month
-            settling_larvae_frac = lf0_array*ns_array
+            # # Obtain number of larvae released in group for larval fraction and project
+            # lf0 = translate(grp0_array, self.dicts['grp_numcell'])
+            # lf0_array = np.zeros_like(idx_array, dtype=np.float32)
+            # lf0_array[:] = lf0
+            # lf0_array = 1/(self.cfg['lpc']*self.cfg['rpm']*lf0_array)
 
-            # Convert fractional settling larvae to absolute number of settling, assuming num_released propto reef area
-            settling_larvae = rc0_array*ns_array
+            # # Convert fractional settling larvae to proportion of larvae released from source reef in release month
+            # settling_larvae_frac = lf0_array*ns_array
 
-            # Now insert into DataFrame
-            frame = pd.DataFrame(data=grp0_array.compressed(), columns=['source_group'])
-            frame['sink_group'] = grp_array.compressed()
-            frame['settling_larval_frac'] = settling_larvae_frac.compressed()
-            frame['settling_larval_num'] = settling_larvae.compressed()
-            frame['release_year'] = y0
-            frame['release_month'] = m0
-            frame.reset_index(drop=True)
+            # # Convert fractional settling larvae to absolute number of settling, assuming num_released propto reef area
+            # settling_larvae = rc0_array*ns_array
 
-            frame.astype({'settling_larval_num': 'float32',
-                          'release_year': 'int16',
-                          'release_month': 'int8'})
+            # # Now insert into DataFrame
+            # frame = pd.DataFrame(data=grp0_array.compressed(), columns=['source_group'])
+            # frame['sink_group'] = grp_array.compressed()
+            # frame['settling_larval_frac'] = settling_larvae_frac.compressed()
+            # frame['settling_larval_num'] = settling_larvae.compressed()
+            # frame['release_year'] = y0
+            # frame['release_month'] = m0
+            # frame.reset_index(drop=True)
 
-            data_list.append(frame)
+            # frame.astype({'settling_larval_num': 'float32',
+            #               'release_year': 'int16',
+            #               'release_month': 'int8'})
+
+            # data_list.append(frame)
 
         # data = pd.concat(data_list, axis=0)
         # self.data = data
