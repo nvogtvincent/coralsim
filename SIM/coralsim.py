@@ -1796,115 +1796,94 @@ class Experiment():
             # if self.cfg['tc']*86400 < int(nc.min_competency_seconds):
                 # raise Exception('Minimum competency chosen is smaller than the value used at run-time (' + str(int(nc.min_competency_seconds)) +'s).')
 
-        data_list = []
+        # Get the full time range
+        t0_list = []
 
-        # Now import all data
-        for fhi, fh in tqdm(enumerate(fh_list), total=len(fh_list)):
-            if rank == 0:
-                with Dataset(fh, mode='r') as nc:
-                    e_num = nc.variables['e_num'][:] # Number of events stored per trajectory
-                    n_traj = np.shape(e_num)[0] # Number of trajectories in file
+        for fh in fh_list:
+            y0 = int(fh.split('/')[-1].split('_')[1])
+            t0_list.append(y0)
 
-                    if not n_traj:
-                        # Skip if there are no trajectories stored in file
-                        continue
+        t0_list = np.array(t0_list)
+        n_months = (t0_list.max()-t0_list.min()+1)*12
+        matrix_t_axis = np.arange(t0_list.min(), t0_list.max()+1, 1/12)
+        # t0_first = [int(np.floor(t0_list.max())), int(np.round(12*np.modf(t0_list.max())[0]+1, 0))]
+        # t0_last = [int(np.floor(t0_list.min())), int(np.round(12*np.modf(t0_list.min())[0]+1, 0))]
 
-                    # Extract origin date from filename
-                    y0 = int(fh.split('/')[-1].split('_')[1])
-                    m0 = int(fh.split('/')[-1].split('_')[2])
-                    d0 = int(fh.split('/')[-1].split('_')[-1].split('.')[0])
-                    t0 = datetime(year=y0, month=m0, day=d0, hour=0)
+        # Split files across processors
+        fh_list_chunk = np.array_split(fh_list, size)[rank]
 
-                    # Load all data into memory
-                    idx_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
-                    t0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
-                    dt_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
-                    idx0_array = np.zeros((n_traj,), dtype=np.uint16)
+        for fhi, fh in tqdm(enumerate(fh_list_chunk), total=len(fh_list_chunk)):
+            with Dataset(fh, mode='r') as nc:
+                e_num = nc.variables['e_num'][:] # Number of events stored per trajectory
+                n_traj = np.shape(e_num)[0] # Number of trajectories in file
 
-                    ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                if not n_traj:
+                    # Skip if there are no trajectories stored in file
+                    continue
 
-                    for i in range(self.cfg['max_events']):
-                        idx_array[:, i] = nc.variables['i' + str(i)][:, 0]
-                        t0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*self.cfg['dt'] # Time at arrival
-                        dt_array[:, i] = nc.variables['dt' + str(i)][:, 0]*self.cfg['dt'] # Time at site
+                # Extract origin date from filename
+                y0 = int(fh.split('/')[-1].split('_')[1])
+                m0 = int(fh.split('/')[-1].split('_')[2])
+                d0 = int(fh.split('/')[-1].split('_')[-1].split('.')[0])
+                t0 = datetime(year=y0, month=m0, day=d0, hour=0)
 
-                    mask = (idx_array == 0)
+                # Load all data into memory
+                idx_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
+                t0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                dt_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
 
-                    # Load remaining required variables
-                    idx0_array = nc.variables['idx0'][:]
+                for i in range(self.cfg['max_events']):
+                    idx_array[:, i] = nc.variables['i' + str(i)][:, 0]
+                    t0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*self.cfg['dt'] # Time at arrival
+                    dt_array[:, i] = nc.variables['dt' + str(i)][:, 0]*self.cfg['dt'] # Time at site
 
-                # Now generate an array containing the reef fraction, t0, and dt for each index
-                fr_array = translate(idx_array, self.dicts['rf'])
-                # fr_array = np.ma.masked_array(fr_array, mask=mask) # Reef fraction
-                # t0_array = np.ma.masked_array(t0_array, mask=mask) # Time at arrival
-                # dt_array = np.ma.masked_array(dt_array, mask=mask) # Time spent at site
+                idx0_array = nc.variables['idx0'][:]
 
-                # Scatter arrays across cores
-                n_traj_per_proc = np.array([len(split) for split in np.array_split(np.zeros_like(idx_array[:, 0]), size)])
-                sendcounts = n_traj_per_proc*self.cfg['max_events']
-                displacements = np.insert(np.cumsum(sendcounts),0,0)[0:-1]
+                mask = (idx_array == 0)
 
-            else:
-                fr_array = None
-                t0_array = None
-                dt_array = None
-                ns_array = None
-                n_traj_per_proc = None
-                sendcounts = None
-                displacements = None
-                mask = None
+            # Now generate an array containing the reef fraction, t0, and dt for each index
+            fr_array = translate(idx_array, self.dicts['rf'])
+            fr_array = np.ma.masked_array(fr_array, mask=mask) # Reef fraction
+            t0_array = np.ma.masked_array(t0_array, mask=mask) # Time at arrival
+            dt_array = np.ma.masked_array(dt_array, mask=mask) # Time spent at site
 
-            # Distribute data across cores
-            sendcounts = comm.bcast(sendcounts, root = 0)
-            displacements = comm.bcast(displacements, root = 0)
-            n_traj_per_proc = comm.bcast(n_traj_per_proc, root = 0)
-
-            fr_array_chunk = np.zeros((n_traj_per_proc[rank], self.cfg['max_events']), dtype=np.float32)
-            t0_array_chunk = np.zeros((n_traj_per_proc[rank], self.cfg['max_events']), dtype=np.float32)
-            dt_array_chunk = np.zeros((n_traj_per_proc[rank], self.cfg['max_events']), dtype=np.float32)
-            ns_array_chunk = np.zeros((n_traj_per_proc[rank], self.cfg['max_events']), dtype=np.float32)
-
-            comm.Scatterv([fr_array, sendcounts, displacements, MPI.FLOAT], fr_array_chunk, root=0)
-            comm.Scatterv([t0_array, sendcounts, displacements, MPI.FLOAT], t0_array_chunk, root=0)
-            comm.Scatterv([dt_array, sendcounts, displacements, MPI.FLOAT], dt_array_chunk, root=0)
-            comm.Scatterv([ns_array, sendcounts, displacements, MPI.FLOAT], ns_array_chunk, root=0)
-
-            # Now calculate the fractional losses
             for i in range(self.cfg['max_events']):
                 if i == 0:
-                    psi0 = np.zeros((n_traj_per_proc[rank],), dtype=np.float32)
-                    int0 = np.zeros((n_traj_per_proc[rank],), dtype=np.float32)
-                    t1_prev = np.zeros((n_traj_per_proc[rank],), dtype=np.float32)
+                    psi0 = np.zeros((n_traj,), dtype=np.float32)
+                    int0 = np.zeros((n_traj,), dtype=np.float32)
+                    t1_prev = np.zeros((n_traj,), dtype=np.float32)
 
-                fr = fr_array_chunk[:, i]
-                t0 = t0_array_chunk[:, i]
-                dt = dt_array_chunk[:, i]
+                fr = fr_array[:, i]
+                t0 = t0_array[:, i]
+                dt = dt_array[:, i]
 
                 k1 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, 0*dt)[0]
                 k23 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, 0.5*dt)[0]
                 k4, int0 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, dt)
 
                 c_1 = self.cfg['a']*self.cfg['μs']*fr
-                ns_array_chunk[:, i] = c_1*dt*((k1/6)+(2*k23/3)+(k4/6))
+                ns_array[:, i] = c_1*dt*((k1/6)+(2*k23/3)+(k4/6))
 
                 t1_prev = t0 + dt
                 psi0 = psi0 + fr*dt
 
-            comm.Barrier()
-            comm.Gatherv(ns_array_chunk, [ns_array, sendcounts, displacements, MPI.FLOAT], root=0) # Gather output data together
+            ns_array = np.ma.masked_array(ns_array, mask=mask).compressed()
 
-            if rank == 0:
-                ns_array = np.ma.masked_array(ns_array, mask=mask)
+            # From the index array, extract group
+            grp_array = np.floor(idx_array/(2**8)).astype(np.uint8)
+            grp_array = np.ma.masked_array(grp_array, mask=mask).compressed()
 
-            # # From the index array, extract group
-            # grp_array = np.floor(idx_array/(2**8)).astype(np.uint8)
-            # grp_array = np.ma.masked_array(grp_array, mask=mask)
+            # Extract origin group and project
+            grp0 = np.floor(idx0_array/(2**8)).astype(np.uint8)
+            grp0_array = np.zeros_like(idx_array, dtype=np.uint8)
+            grp0_array[:] = grp0
+            grp0_array = np.ma.masked_array(grp0_array, mask=mask).compressed()
 
-            # # Extract origin group and project
-            # grp0 = np.floor(idx0_array/(2**8)).astype(np.uint8)
-            # grp0_array = np.zeros_like(idx_array, dtype=np.uint8)
-            # grp0_array[:] = grp0
-            # grp0_array = np.ma.masked_array(grp0_array, mask=mask)
+            # Now grid
+            test = np.histogram2d(grp_array, grp0_array, bins=[np.arange(grp0_array.max()+1)+0.5, np.arange(grp0_array.max()+1)+0.5],
+                                  weights=ns_array)[0]
+            print()
 
             # # Obtain origin reef cover as a proxy for total larval number and project
             # rc0 = translate(idx0_array, self.dicts['rc'])
