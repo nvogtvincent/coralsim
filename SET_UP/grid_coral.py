@@ -66,7 +66,7 @@ with Dataset(fh['cmems'], mode='r') as nc:
     lon_rho_c = nc.variables['lon_rho'][:]
     lat_rho_c = nc.variables['lat_rho'][:]
 
-    lsm_psi_c = nc.variables['lsm_rho'][:].astype(np.int64)
+    lsm_psi_c = nc.variables['lsm_psi'][:].astype(np.int64)
 
     # Constrain to same domain as WINDS
     lon_range = [lon_rho_w[0], lon_rho_w[-1]]
@@ -637,12 +637,12 @@ ax.set_ylim([-23.5, 0])
 ax.spines['geo'].set_linewidth(1)
 ax.set_ylabel('Latitude')
 ax.set_xlabel('Longitude')
-ax.set_title('Coral cells on WINDS grid (postproc)')
+ax.set_title('Reef cells on WINDS grid (postproc)')
 
 cax1 = f.add_axes([ax.get_position().x1+0.07,ax.get_position().y0-0.10,0.015,ax.get_position().height+0.196])
 
 cb1 = plt.colorbar(oceanc, cax=cax1, pad=0.1)
-cb1.set_label('Coral surface area in cell (m2)', size=12)
+cb1.set_label('Reef surface area in cell (m2)', size=12)
 
 ax.set_aspect('equal', adjustable=None)
 ax.margins(x=-0.01, y=-0.01)
@@ -669,12 +669,12 @@ ax.set_ylim([-23.5, 0])
 ax.spines['geo'].set_linewidth(1)
 ax.set_ylabel('Latitude')
 ax.set_xlabel('Longitude')
-ax.set_title('Coral cells on CMEMS grid (postproc)')
+ax.set_title('Reef cells on CMEMS grid (postproc)')
 
 cax1 = f.add_axes([ax.get_position().x1+0.07,ax.get_position().y0-0.10,0.015,ax.get_position().height+0.196])
 
 cb1 = plt.colorbar(oceanc, cax=cax1, pad=0.1)
-cb1.set_label('Coral surface area in cell (m2)', size=12)
+cb1.set_label('Reef surface area in cell (m2)', size=12)
 
 ax.set_aspect('equal', adjustable=None)
 ax.margins(x=-0.01, y=-0.01)
@@ -763,52 +763,52 @@ with Dataset(fh['out'], mode='w') as nc:
         grid[grid == old_fill] = new_fill
         return grid
 
-    nc.createVariable('eez_w', 'i2', ('lat_rho_w', 'lon_rho_w'), zlib=True, fill_value=fill_value)
-    nc.variables['eez_w'].long_name = 'EEZ_on_rho_grid_winds'
-    nc.variables['eez_w'].standard_name = 'EEZ_on_rho_grid_for_winds'
-    nc.variables['eez_w'][:] = set_fill(eez_grid_w, 0, fill_value)
+    nc.createVariable('reef_eez_w', 'i2', ('lat_rho_w', 'lon_rho_w'), zlib=True, fill_value=fill_value)
+    nc.variables['reef_eez_w'].long_name = 'EEZ_on_rho_grid_winds'
+    nc.variables['reef_eez_w'].standard_name = 'EEZ_on_rho_grid_for_winds'
+    nc.variables['reef_eez_w'][:] = set_fill(eez_grid_w, 0, fill_value)
 
-    nc.createVariable('eez_c', 'i2', ('lat_psi_c', 'lon_psi_c'), zlib=True, fill_value=fill_value)
-    nc.variables['eez_c'].long_name = 'EEZ_on_psi_grid_cmems'
-    nc.variables['eez_c'].standard_name = 'EEZ_on_psi_grid_for_cmems'
-    nc.variables['eez_c'][:] = set_fill(eez_grid_c, 0, fill_value)
+    nc.createVariable('reef_eez_c', 'i2', ('lat_psi_c', 'lon_psi_c'), zlib=True, fill_value=fill_value)
+    nc.variables['reef_eez_c'].long_name = 'EEZ_on_psi_grid_cmems'
+    nc.variables['reef_eez_c'].standard_name = 'EEZ_on_psi_grid_for_cmems'
+    nc.variables['reef_eez_c'][:] = set_fill(eez_grid_c, 0, fill_value)
 
-    nc.createVariable('coral_cover_w', 'i4', ('lat_rho_w', 'lon_rho_w'), zlib=True, fill_value=fill_value)
-    nc.variables['coral_cover_w'].long_name = 'coral_cover_on_rho_grid_winds'
-    nc.variables['coral_cover_w'].standard_name = 'coral_cover_on_rho_grid_for_winds'
-    nc.variables['coral_cover_w'][:] = set_fill(coral_grid_w, 0, fill_value)
+    nc.createVariable('reef_cover_w', 'i4', ('lat_rho_w', 'lon_rho_w'), zlib=True, fill_value=fill_value)
+    nc.variables['reef_cover_w'].long_name = 'reef_cover_on_rho_grid_winds'
+    nc.variables['reef_cover_w'].standard_name = 'reef_cover_on_rho_grid_for_winds'
+    nc.variables['reef_cover_w'][:] = set_fill(coral_grid_w, 0, fill_value)
 
-    nc.createVariable('coral_cover_c', 'i4', ('lat_psi_c', 'lon_psi_c'), zlib=True, fill_value=fill_value)
-    nc.variables['coral_cover_c'].long_name = 'coral_cover_on_psi_grid_cmems'
-    nc.variables['coral_cover_c'].standard_name = 'coral_cover_on_psi_grid_for_cmems'
-    nc.variables['coral_cover_c'][:] = set_fill(coral_grid_c, 0, fill_value)
+    nc.createVariable('reef_cover_c', 'i4', ('lat_psi_c', 'lon_psi_c'), zlib=True, fill_value=fill_value)
+    nc.variables['reef_cover_c'].long_name = 'reef_cover_on_psi_grid_cmems'
+    nc.variables['reef_cover_c'].standard_name = 'reef_cover_on_psi_grid_for_cmems'
+    nc.variables['reef_cover_c'][:] = set_fill(coral_grid_c, 0, fill_value)
 
-    nc.createVariable('coral_frac_w', 'f4', ('lat_rho_w', 'lon_rho_w'), zlib=True, fill_value=fill_value)
-    nc.variables['coral_frac_w'].long_name = 'coral_fraction_on_rho_grid_winds'
-    nc.variables['coral_frac_w'].standard_name = 'coral_fraction_on_rho_grid_for_winds'
-    nc.variables['coral_frac_w'][:] = set_fill(coral_frac_w, 0, fill_value)
+    nc.createVariable('reef_frac_w', 'f4', ('lat_rho_w', 'lon_rho_w'), zlib=True, fill_value=fill_value)
+    nc.variables['reef_frac_w'].long_name = 'reef_fraction_on_rho_grid_winds'
+    nc.variables['reef_frac_w'].standard_name = 'reef_fraction_on_rho_grid_for_winds'
+    nc.variables['reef_frac_w'][:] = set_fill(coral_frac_w, 0, fill_value)
 
-    nc.createVariable('coral_frac_c', 'f4', ('lat_psi_c', 'lon_psi_c'), zlib=True, fill_value=fill_value)
-    nc.variables['coral_frac_c'].long_name = 'coral_fraction_on_psi_grid_cmems'
-    nc.variables['coral_frac_c'].standard_name = 'coral_fraction_on_psi_grid_for_cmems'
-    nc.variables['coral_frac_c'][:] = set_fill(coral_frac_c, 0, fill_value)
+    nc.createVariable('reef_frac_c', 'f4', ('lat_psi_c', 'lon_psi_c'), zlib=True, fill_value=fill_value)
+    nc.variables['reef_frac_c'].long_name = 'reef_fraction_on_psi_grid_cmems'
+    nc.variables['reef_frac_c'].standard_name = 'reef_fraction_on_psi_grid_for_cmems'
+    nc.variables['reef_frac_c'][:] = set_fill(coral_frac_c, 0, fill_value)
 
-    nc.createVariable('coral_grp_w', 'i2', ('lat_rho_w', 'lon_rho_w'), zlib=True, fill_value=fill_value)
-    nc.variables['coral_grp_w'].long_name = 'coral_group_on_rho_grid_winds'
-    nc.variables['coral_grp_w'].standard_name = 'coral_group_on_rho_grid_for_winds'
-    nc.variables['coral_grp_w'][:] = set_fill(coral_grp_w, 0, fill_value)
+    nc.createVariable('reef_grp_w', 'i2', ('lat_rho_w', 'lon_rho_w'), zlib=True, fill_value=fill_value)
+    nc.variables['reef_grp_w'].long_name = 'reef_group_on_rho_grid_winds'
+    nc.variables['reef_grp_w'].standard_name = 'reef_group_on_rho_grid_for_winds'
+    nc.variables['reef_grp_w'][:] = set_fill(coral_grp_w, 0, fill_value)
 
-    nc.createVariable('coral_grp_c', 'i2', ('lat_psi_c', 'lon_psi_c'), zlib=True, fill_value=fill_value)
-    nc.variables['coral_grp_c'].long_name = 'coral_group_on_psi_grid_cmems'
-    nc.variables['coral_grp_c'].standard_name = 'coral_group_on_psi_grid_for_cmems'
-    nc.variables['coral_grp_c'][:] = set_fill(coral_grp_c, 0, fill_value)
+    nc.createVariable('reef_grp_c', 'i2', ('lat_psi_c', 'lon_psi_c'), zlib=True, fill_value=fill_value)
+    nc.variables['reef_grp_c'].long_name = 'reef_group_on_psi_grid_cmems'
+    nc.variables['reef_grp_c'].standard_name = 'reef_group_on_psi_grid_for_cmems'
+    nc.variables['reef_grp_c'][:] = set_fill(coral_grp_c, 0, fill_value)
 
-    nc.createVariable('coral_idx_w', 'u2', ('lat_rho_w', 'lon_rho_w'), zlib=True, fill_value=fill_value)
-    nc.variables['coral_idx_w'].long_name = 'coral_index_on_rho_grid_winds'
-    nc.variables['coral_idx_w'].standard_name = 'coral_index_on_rho_grid_for_winds'
-    nc.variables['coral_idx_w'][:] = set_fill(coral_idx_w, 0, fill_value)
+    nc.createVariable('reef_idx_w', 'u2', ('lat_rho_w', 'lon_rho_w'), zlib=True, fill_value=fill_value)
+    nc.variables['reef_idx_w'].long_name = 'reef_index_on_rho_grid_winds'
+    nc.variables['reef_idx_w'].standard_name = 'reef_index_on_rho_grid_for_winds'
+    nc.variables['reef_idx_w'][:] = set_fill(coral_idx_w, 0, fill_value)
 
-    nc.createVariable('coral_idx_c', 'u2', ('lat_psi_c', 'lon_psi_c'), zlib=True, fill_value=fill_value)
-    nc.variables['coral_idx_c'].long_name = 'coral_index_on_psi_grid_cmems'
-    nc.variables['coral_idx_c'].standard_name = 'coral_index_on_psi_grid_for_cmems'
-    nc.variables['coral_idx_c'][:] = set_fill(coral_idx_c, 0, fill_value)
+    nc.createVariable('reef_idx_c', 'u2', ('lat_psi_c', 'lon_psi_c'), zlib=True, fill_value=fill_value)
+    nc.variables['reef_idx_c'].long_name = 'reef_index_on_psi_grid_cmems'
+    nc.variables['reef_idx_c'].standard_name = 'reef_index_on_psi_grid_for_cmems'
+    nc.variables['reef_idx_c'][:] = set_fill(coral_idx_c, 0, fill_value)

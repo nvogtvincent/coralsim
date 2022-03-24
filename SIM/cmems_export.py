@@ -20,15 +20,18 @@ import time as timer
 ##############################################################################
 
 # PARAMETERS
-mortality_t = 14         # Mortality timescale (d)
-settling_t = 1           # Settling timescale (d)
-mean_competency_t = 7    # Time at which 50% of larvae are competent (d)
-competency_t_spread = 1  # Spread of logistic function for competency (d)
+parameters = {# Competency parameters
+              'a': 1/timedelta(days=6).total_seconds(),    # Rate of competency acquisition (1/s)
+              'b': 1/timedelta(days=20).total_seconds(),   # Rate of competency loss (1/s)
+              'tc': timedelta(days=3.2).total_seconds(),   # Minimum competency period (s)
 
-parameters = {'lm': 1/(mortality_t*24*3600),
-              'ls': 1/(settling_t*24*3600),
-              'tc': mean_competency_t*24*3600,
-              'kc': 1/(competency_t_spread*24*3600)}
+              # Settling parameters
+              'μs': 1/timedelta(days=1).total_seconds(),   # Settling rate (1/s)
+
+              # Mortality parameters
+              'σ': -0.09,                                  # GW shape parameter 1
+              'ν': 0.58,                                   # GW shape parameter 2
+              'λ': 1/timedelta(days=22).total_seconds(),}  # GW mortality rate parameter
 
 # DIRECTORIES
 dirs = {}
@@ -50,11 +53,10 @@ dirs['traj'] = dirs['root'] + 'TRAJ/'
 ##############################################################################
 
 sey = Experiment()
-sey.config(dirs, preset='CMEMS', dt=timedelta(hours=1),
-           releases_per_month=1, larvae_per_cell=6400)
+sey.config(dirs, preset='CMEMS', releases_per_month=1) ## Add ability to read from netcdf
 sey.generate_dict()
 time0 = timer.time()
-sey.to_dataframe(fh='cmems6400*', parameters=parameters)
+sey.generate_matrix(fh='cmems6400*', parameters=parameters)
 print(timer.time()-time0)
 
 

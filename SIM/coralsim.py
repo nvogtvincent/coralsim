@@ -61,13 +61,6 @@ class Experiment():
                        'dict': False,
                        'dataframe': False}
 
-        # Set up dictionaries for various parameters
-        # self.
-        # self.fh = {}
-        # self.params = {}
-
-        # self.root_dir = root_dir
-
 
     def config(self, dir_dict, **kwargs):
         """
@@ -145,8 +138,14 @@ class Experiment():
                  'lsm_varname': 'lsm_c',
 
                  # Grid type
-                 'grid' : 'A'
-                 }
+                 'grid' : 'A',
+
+                 # Velocity interpolation method
+                 'interp_method': 'freeslip',
+
+                 # Plotting parameters
+                 'plot': False,
+                 'plot_type': 'grp',}
 
         PRESETS = {'CMEMS': CMEMS}
 
@@ -170,45 +169,23 @@ class Experiment():
         if 'test_params' in kwargs.keys():
             self.cfg['test_params'] = kwargs['test_params']
 
-        # @njit(parallel=True)
-        # def ode(fr, psi0, ls, kc, tc, m1, m2, m3, t0, h):
-        #     t = t0 + h
-
-        #     #################### DO NOT MODIFY ABOVE HERE #####################
-
-        #     # func_lambda_t = int_0^t lm(t) dt
-        #     func_lambda_t = t*((m1*(t**2)/3)-(m1*m2*t)+m1*(m2**2)+m3)
-
-        #     # func_phi_t = int_t0^t fc(t) dt
-        #     func_phi_t = (1/kc)*np.log((1+np.exp(kc*(t-tc)))/(1+np.exp(kc*(t0-tc))))
-
-        #     # func_fc_t = fc(t)
-        #     func_fc_t = 1/(1+np.exp(-kc*(t-tc)))
-
-        #     #################### DO NOT MODIFY BELOW HERE #####################
-
-        #     # func_psi_t = int_0^t fc(t)*fr(t) dt = psi0 + fr*func_phi_t
-        #     func_psi_t = psi0 + fr*func_phi_t
-
-        #     return func_fc_t*np.exp((-ls*func_psi_t)-func_lambda_t), func_psi_t
-
-        # self.ode = ode
-
+        @njit
         def ode(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, h):
 
             t = t0 + h
 
             surv_t = (1 - σ*(λ*(t + tc))**ν)**(1/σ)
-            coef_1 = surv_t*np.exp(-b*t)*np.exp(-μs*(psi0+fr*(t-t0)))
 
-            coef_2 = np.exp(μs*psi0)/(b-a)
-            term_2 = np.exp(t0*(b-a)) - np.exp(t1_prev*(b-a))
-            coef_3 = np.exp((μs*psi0)-(μs*fr*t0))/(b-a+μs*fr)
-            term_3 = np.exp(t*(b-a+μs*fr)) - np.exp(t0*(b-a+μs*fr))
+            f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*(psi0+fr*(t-t0)))
+            f_2 = np.exp(t0*(b-a)) - np.exp(t1_prev*(b-a))
+            f_3 = np.exp(t*(b-a+μs*fr)) - np.exp(t0*(b-a+μs*fr))
 
-            int1 = int0 + coef_2*term_2 + coef_3*term_3
+            c_2 = np.exp(μs*psi0)/(b-a)
+            c_3 = np.exp((μs*psi0)-(μs*fr*t0))/(b-a+μs*fr)
 
-            return coef_1 * int1, int1
+            int1 = int0 + c_2*f_2 + c_3*f_3
+
+            return f_1 * int1, int1
 
         self.ode = ode
 
@@ -218,10 +195,6 @@ class Experiment():
     def generate_fieldset(self, **kwargs):
         """
         Generate the FieldSet object for OceanParcels
-
-        Parameters
-        ----------
-        **kwargs : interp_method = 'freeslip' or 'linear'
 
         """
 
@@ -252,15 +225,6 @@ class Experiment():
             raise KeyError('Grid type not understood.')
 
         # Import currents
-        if 'interp_method' not in kwargs.keys():
-            print('No interpolation method prescribed for velocities.')
-            print('Setting velocity interpolation method to linear.')
-            print('')
-            self.cfg['interp_method'] = 'linear'
-        elif kwargs['interp_method'] not in ['linear', 'cgrid_velocity', 'freeslip', 'partialslip']:
-            raise KeyError('Velocity interpolation method not understood.')
-        else:
-            self.cfg['interp_method'] = kwargs['interp_method']
 
         if self.cfg['grid'] == 'A':
             self.fieldset = FieldSet.from_netcdf(filenames=self.fh['model'],
@@ -323,6 +287,8 @@ class Experiment():
         Parameters
         ----------
         **kwargs : num = Number of particles to (aim to) release per cell
+                   filters = Dict with 'eez' and/or 'grp' keys to enable filter
+                             for release sites
 
                    t0 = Release time for particles (datetime)
                    min_competency = Minimum competency period (timedelta)
@@ -330,12 +296,6 @@ class Experiment():
                    run_time = Model run-time (timedelta)
 
                    test = Whether to activate testing kernels (bool)
-
-                   filters = Dict with 'eez' and/or 'grp' keys to enable filter
-                             for release sites
-                   plot = 'grp' or 'eez' or None - plots the specified field if
-                          not None
-
         """
 
         if not self.status['fieldset']:
@@ -425,21 +385,6 @@ class Experiment():
                 self.cfg['test'] = False
         else:
             self.cfg['test'] = False
-
-        if 'plot' in kwargs.keys():
-            self.cfg['plot'] = kwargs['plot']
-
-            if kwargs['plot'] not in ['grp', 'eez']:
-                raise KeyError('Plot type not understood. Setting to default of EEZ.')
-                self.cfg['plot_type'] = 'grp'
-            else:
-                self.cfg['plot'] = True
-                self.cfg['plot_type'] = kwargs['plot']
-
-            self.fh['fig'] = self.dirs['fig'] + 'particle_release_pos.png'
-
-        else:
-            self.cfg['plot'] = False
 
         # Build a mask of valid initial position cells
         reef_mask = (self.fields['rc'] > 0)
@@ -567,24 +512,30 @@ class Experiment():
         self.pset.set_variable_write_status('lat', 'False')
         self.pset.set_variable_write_status('time', 'False')
 
-        # Add minimum competency period and maximum age to fieldset
-        self.fieldset.add_constant('min_competency', int(timedelta(days=self.cfg['test_params']['tc'])/self.cfg['dt']))
+        # Add maximum age to fieldset
         self.fieldset.add_constant('max_age', int(self.cfg['run_time']/self.cfg['dt']))
         assert self.fieldset.max_age < np.iinfo(np.uint16).max
 
         # Add test parameters to fieldset
         if self.cfg['test']:
+
+            param_dict = {'a': 'a', 'b': 'b', 'tc': 'tc', 'μs': 'ms', 'σ': 'sig', 'ν': 'nu', 'λ': 'lam'}
+
             if 'test_params' not in self.cfg.keys():
                 raise Exception('Test parameters not supplied.')
-                # self.cfg['test_params'] = {'lm': 8e-7, 'ls': 1e-5, 'tc': 6e5, 'kc' : 1e-5}
 
             for key in self.cfg['test_params'].keys():
-                self.fieldset.add_constant(key, self.cfg['test_params'][key])
+                self.fieldset.add_constant(param_dict[key], self.cfg['test_params'][key])
+
+            # In testing mode, we override the minimum competency to use tc
+            self.fieldset.add_constant('min_competency', int(self.cfg['test_params']['tc']/self.cfg['dt'].total_seconds()))
+        else:
+            self.fieldset.add_constant('min_competency', int(self.cfg['min_competency']['tc']/self.cfg['dt']))
 
         # Generate kernels
         self.kernel = (self.pset.Kernel(AdvectionRK4) + self.pset.Kernel(self.build_event_kernel(self.cfg['test'])))
 
-        # Now plot (if wished)
+        # Now plot initial conditions (if wished)
         if self.cfg['plot'] and not self.cfg['test']:
             colour_series = particles[self.cfg['plot_type']]
 
@@ -613,7 +564,7 @@ class Experiment():
             gl.xlabels_top = False
             gl.ylabels_right = False
 
-            plt.savefig(self.fh['fig'], dpi=300)
+            plt.savefig(self.dirs['fig'] + 'initial_particle_position.png', dpi=300)
             plt.close()
 
         self.status['particleset'] = True
@@ -784,9 +735,6 @@ class Experiment():
                 # TEMPORARY TESTING VARIABLES ####################################
                 ##################################################################
 
-                # Number of larvae represented by particle
-                # N = Variable('N', dtype=np.float32, initial=1., to_write=True)
-
                 # Larvae lost to sites
                 Ns0 = Variable('Ns0', dtype=np.float32, initial=0., to_write=True)
                 Ns1 = Variable('Ns1', dtype=np.float32, initial=0., to_write=True)
@@ -816,9 +764,6 @@ class Experiment():
                 L20 = Variable('L20', dtype=np.float64, initial=0., to_write=True) # Competent larvae, frozen at start
                 Ns = Variable('Ns', dtype=np.float64, initial=0., to_write=True) # Larvae settling in current/just-passed event
                 Ns_next = Variable('Ns_next', dtype=np.float64, initial=0., to_write=True) # Larvae settling in current event (when event has just ended)
-
-                # Ns = Variable('Ns', dtype=np.float32, initial=0., to_write=True)
-                # N0 = Variable('N0', dtype=np.float32, initial=0., to_write=True)
 
                 # Reef fraction
                 rf = Variable('rf', dtype=np.float32, initial=0., to_write=True)
@@ -1421,6 +1366,7 @@ class Experiment():
                     # Current reef group
                     particle.current_reef_idx = particle.idx
 
+
                 # Finally, check if particle needs to be deleted
                 if particle.ot >= fieldset.max_age:
 
@@ -1562,15 +1508,16 @@ class Experiment():
             self.generate_dict()
 
         if self.cfg['test_type'] == 'kernel':
-            a = self.cfg['test_params']['a']
-            b = self.cfg['test_params']['b']
-            tc = self.cfg['test_params']['tc']*3600*24
-            μs = self.cfg['test_params']['ms']
-            σ = self.cfg['test_params']['sig']
-            λ = self.cfg['test_params']['lam']
-            ν = self.cfg['test_params']['nu']
+            # Convert all units to days to avoid overflow in calculations
+            a = self.cfg['test_params']['a']*86400
+            b = self.cfg['test_params']['b']*86400
+            tc = self.cfg['test_params']['tc']/86400
+            μs = self.cfg['test_params']['μs']*86400
+            σ = self.cfg['test_params']['σ']
+            λ = self.cfg['test_params']['λ']*86400
+            ν = self.cfg['test_params']['ν']
 
-            dt = self.cfg['dt'].total_seconds()
+            dt = self.cfg['dt'].total_seconds()/86400
 
             with Dataset(self.fh['traj'], mode='r') as nc:
                 # Find the number of events
@@ -1591,8 +1538,8 @@ class Experiment():
 
                 # Load all data into memory
                 idx_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
-                t0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint32)
-                dt_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint32)
+                t0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                dt_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
 
                 fr_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32) # Fraction of reef
                 ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32) # Number/proportion settling
@@ -1607,16 +1554,16 @@ class Experiment():
             mask = (idx_array == 0)
 
             # Now generate an array containing the reef fraction for each index
-            def translate(a, d):
+            def translate(c1, c2):
                 # Adapted from Maxim's excellent suggestion:
                 # https://stackoverflow.com/questions/16992713/translate-every-element-in-numpy-array-according-to-key
-                src, values = np.array(list(d.keys()), dtype=np.uint16), np.array(list(d.values()), dtype=np.float32)
-                d_array = np.zeros((src.max()+1), dtype=np.float32)
-                d_array[src] = values
-                return d_array[a]
+                src, values = np.array(list(c2.keys()), dtype=np.uint16), np.array(list(c2.values()), dtype=np.float32)
+                c2_array = np.zeros((src.max()+1), dtype=np.float32)
+                c2_array[src] = values
+                return c2_array[c1]
 
             fr_array = translate(idx_array, self.dicts['rf'])
-            fr_array = np.ma.masked_array(fr_array, mask=mask)   # Reef fraction
+            fr_array = np.ma.masked_array(fr_array, mask=mask) # Reef fraction
             t0_array = np.ma.masked_array(t0_array, mask=mask) # Time at arrival
             dt_array = np.ma.masked_array(dt_array, mask=mask) # Time at site
 
@@ -1636,7 +1583,9 @@ class Experiment():
                 k1 = self.ode(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, 0*dt)[0]
                 k23 = self.ode(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, 0.5*dt)[0]
                 k4, int0 = self.ode(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, dt)
-                ns_array[:, i] = L0*a*μs*fr*dt*((k1/6)+(2*k23/3)+(k4/6))
+
+                c_1 = a*L0*μs*fr
+                ns_array[:, i] = c_1*dt*((k1/6)+(2*k23/3)+(k4/6))
 
                 t1_prev = t0 + dt
                 psi0 = psi0 + fr*dt
@@ -1648,17 +1597,58 @@ class Experiment():
             pct_diff = 100*(ns_array-ns_test_array)/ns_test_array
             pct_diff = pct_diff.compressed()
 
-            # Plot
+            # Plot online-offline difference
             f, ax = plt.subplots(1, 1, figsize=(10, 10))
 
             xarg_max = np.max(np.abs(pct_diff[np.isfinite(pct_diff)]))
-            xarg_max = np.min([xarg_max, 2000])
+            xarg_max = np.min([xarg_max, 5])
             ax.set_xlim([-xarg_max, xarg_max])
             ax.set_xlabel('Percentage difference between analytical and online settling fluxes')
             ax.set_ylabel('Number of events')
             ax.hist(pct_diff, range=(-xarg_max,xarg_max), bins=200, color='k')
 
             plt.savefig(self.dirs['fig'] + 'event_accuracy_test.png', dpi=300)
+
+            # Plot larval mortality curves
+            f, ax = plt.subplots(1, 1, figsize=(10, 10))
+
+            plt_t0 = 0
+            plt_t1 = self.cfg['run_time'].days
+            plt_t = np.linspace(plt_t0, plt_t1, num=200)
+
+            f_competent = (a/(a-b))*(np.exp(-b*(plt_t-tc))-np.exp(-a*(plt_t-tc)))
+            f_competent[plt_t-tc < 0] = 0
+            f_surv = (1 - σ*(λ*(plt_t))**ν)**(1/σ)
+            f_comp_surv = f_competent*f_surv
+
+            plt_t[0] = plt_t[1]/10
+            μm = (λ*ν*(λ*plt_t)**(ν-1))/(1-σ*(λ*plt_t)**ν)
+
+            ax.set_xlim([0, self.cfg['run_time'].days])
+            ax.set_ylim([0, 1])
+            ax.plot(plt_t/1, f_competent, 'k--', label='Fraction competent')
+            ax.plot(plt_t/1, f_surv, 'k:', label='Fraction alive')
+            ax.plot(plt_t/1, f_comp_surv, 'k-', label='Fraction alive and competent')
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.set_xlabel('Time since release (days)')
+            ax.set_ylabel('Proportion of larvae')
+            ax.legend(frameon=False, loc=(0.65, 0.9))
+
+            ax2 = ax.twinx()
+            ax2.set_yscale('log')
+            ax2.plot(plt_t, μm, 'r-', label='Mortality rate per day')
+            ax2.set_ylabel('Mortality rate (1/d)', color='r')
+            ax2.yaxis.set_label_position('right')
+            ax2.yaxis.tick_right()
+            ax2.legend(frameon=False, loc=(0.65,0.85))
+            ax2.spines['top'].set_visible(False)
+            ax2.spines['left'].set_visible(False)
+            ax2.spines['bottom'].set_visible(False)
+            ax2.spines['right'].set_edgecolor('r')
+            ax2.tick_params(color='r', labelcolor='r')
+
+            plt.savefig(self.dirs['fig'] + 'mortality_competency_test.png', dpi=300)
 
             # Print statistics
             pct_within_1pct = np.around(100*np.sum(np.abs(pct_diff) <= 1)/len(pct_diff), decimals=1)
@@ -1734,19 +1724,20 @@ class Experiment():
                 plt.savefig(self.dirs['fig'] + 'trajectory_test.png', dpi=300)
 
 
-    def to_dataframe(self, **kwargs):
+    def generate_matrix(self, **kwargs):
 
         """
         Parameters (* are required)
         ----------
         kwargs :
             fh*: File handles to data
-            parameters*: Postproc parameters (dict with lm + ls, and optionally tc + kc)
-            dt: Model time-step as timedelta (required if not supplied in config)
-            larvae_per_cell*: Number of larvae released per cell
-            releases_per_month*: Number of releases per model month
-
+            parameters*: Postproc parameters (in dict)
         """
+
+        from mpi4py import MPI
+
+        comm = MPI.COMM_WORLD
+        rank = cmm.Get_rank()
 
         if not self.status['dict']:
             self.generate_dict()
@@ -1754,23 +1745,17 @@ class Experiment():
         if 'parameters' not in kwargs.keys():
             raise KeyError('Please supply a parameters dictionary.')
         else:
-            lm = np.array(kwargs['parameters']['lm'], dtype=np.float32)
-            ls = np.array(kwargs['parameters']['ls'], dtype=np.float32)
-            tc = np.array(kwargs['parameters']['tc'], dtype=np.float32)
-            kc = np.array(kwargs['parameters']['kc'], dtype=np.float32)
-
-        if 'dt' in self.cfg.keys():
-            dt = self.cfg['dt'].total_seconds()
-        elif 'dt' in kwargs.keys():
-            dt = kwargs['dt'].total_seconds()
-        else:
-            raise KeyError('Please supply the RK4 timestep used.')
+            # Convert all units to days to prevent overflows from large numbers
+            self.cfg['a'] = np.array(kwargs['parameters']['a'], dtype=np.float32)*86400
+            self.cfg['b'] = np.array(kwargs['parameters']['b'], dtype=np.float32)*86400
+            self.cfg['tc'] = np.array(kwargs['parameters']['tc'], dtype=np.float32)/86400
+            self.cfg['μs'] = np.array(kwargs['parameters']['μs'], dtype=np.float32)*86400
+            self.cfg['σ'] = np.array(kwargs['parameters']['σ'], dtype=np.float32)
+            self.cfg['λ'] = np.array(kwargs['parameters']['λ'], dtype=np.float32)*86400
+            self.cfg['ν'] = np.array(kwargs['parameters']['ν'], dtype=np.float32)
 
         if 'fh' not in kwargs.keys():
             raise KeyError('Please supply a list of files to analyse.')
-
-        if 'lpc' not in self.cfg.keys():
-            raise KeyError('Please supply the number of larvae released per cell per release in config.')
 
         if 'rpm' not in self.cfg.keys():
             raise KeyError('Please supply the number of separate releases per month in config.')
@@ -1787,7 +1772,7 @@ class Experiment():
         # Get files
         fh_list = sorted(glob(self.dirs['traj'] + kwargs['fh']))
 
-        # Open the first file to find the number of events stored
+        # Open the first file to find the number of events stored and remaining parameters
         with Dataset(fh_list[0], mode='r') as nc:
             e_num = 0
             searching = True
@@ -1801,63 +1786,80 @@ class Experiment():
 
             self.cfg['max_events'] = e_num
 
+            # self.cfg['dt'] = int(nc.timestep_seconds)/86400
+            # self.cfg['lpc'] = int(nc.larvae_per_cell)
+            # TEMP HACK ONLY:
+            self.cfg['dt'] = 3600/86400
+            self.cfg['lpc'] = 6400
+
+            # TEMP HACK REMOVED:
+            # if self.cfg['tc']*86400 < int(nc.min_competency_seconds):
+                # raise Exception('Minimum competency chosen is smaller than the value used at run-time (' + str(int(nc.min_competency_seconds)) +'s).')
+
         data_list = []
 
         # Now import all data
         for fhi, fh in tqdm(enumerate(fh_list), total=len(fh_list)):
-            with Dataset(fh, mode='r') as nc:
-                e_num = nc.variables['e_num'][:] # Number of events stored per trajectory
-                n_traj = np.shape(e_num)[0] # Number of trajectories in file
+            if rank == 0:
+                with Dataset(fh, mode='r') as nc:
+                    e_num = nc.variables['e_num'][:] # Number of events stored per trajectory
+                    n_traj = np.shape(e_num)[0] # Number of trajectories in file
 
-                if not n_traj:
-                    # Skip if there are no trajectories stored in file
-                    continue
+                    if not n_traj:
+                        # Skip if there are no trajectories stored in file
+                        continue
 
-                # Extract origin date from filename
-                y0 = int(fh.split('/')[-1].split('_')[1])
-                m0 = int(fh.split('/')[-1].split('_')[2])
-                d0 = int(fh.split('/')[-1].split('_')[-1].split('.')[0])
-                t0 = datetime(year=y0, month=m0, day=d0, hour=0)
+                    # Extract origin date from filename
+                    y0 = int(fh.split('/')[-1].split('_')[1])
+                    m0 = int(fh.split('/')[-1].split('_')[2])
+                    d0 = int(fh.split('/')[-1].split('_')[-1].split('.')[0])
+                    t0 = datetime(year=y0, month=m0, day=d0, hour=0)
 
-                # Load all data into memory
-                idx_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
-                ts0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
-                dts_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
-                idx0_array = np.zeros((n_traj,), dtype=np.uint16)
+                    # Load all data into memory
+                    idx_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
+                    t0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                    dt_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                    idx0_array = np.zeros((n_traj,), dtype=np.uint16)
 
-                rf_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
-                ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                    rf_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                    ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
 
-                for i in range(self.cfg['max_events']):
-                    idx_array[:, i] = nc.variables['i' + str(i)][:, 0]
-                    ts0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*dt # Time at arrival
-                    dts_array[:, i] = nc.variables['dt' + str(i)][:, 0]*dt # Time at site
+                    for i in range(self.cfg['max_events']):
+                        idx_array[:, i] = nc.variables['i' + str(i)][:, 0]
+                        t0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*self.cfg['dt'] # Time at arrival
+                        dt_array[:, i] = nc.variables['dt' + str(i)][:, 0]*self.cfg['dt'] # Time at site
 
-                mask = (idx_array == 0)
+                    mask = (idx_array == 0)
 
-                # Load remaining required variables
-                idx0_array = nc.variables['idx0'][:]
+                    # Load remaining required variables
+                    idx0_array = nc.variables['idx0'][:]
 
-            # Now generate an array containing the reef fraction for each index
-            rf_array = translate(idx_array, self.dicts['rf'])
-            rf_array = np.ma.masked_array(rf_array, mask=mask)
+                # Now generate an array containing the reef fraction, t0, and dt for each index
+                fr_array = translate(idx_array, self.dicts['rf'])
+                fr_array = np.ma.masked_array(rf_array, mask=mask) # Reef fraction
+                t0_array = np.ma.masked_array(t0_array, mask=mask) # Time at arrival
+                dt_array = np.ma.masked_array(dt_array, mask=mask) # Time spent at site
 
-            ts0_array = np.ma.masked_array(ts0_array, mask=mask)
-            dts_array = np.ma.masked_array(dts_array, mask=mask)
-
+            # Now calculate the fractional losses
             for i in range(self.cfg['max_events']):
                 if i == 0:
                     psi0 = np.zeros((n_traj,), dtype=np.float32)
+                    int0 = np.zeros((n_traj,), dtype=np.float32)
+                    t1_prev = np.zeros((n_traj,), dtype=np.float32)
 
-                fri = rf_array[:, i]
-                ts0 = ts0_array[:, i].astype(np.float32)
-                dts = dts_array[:, i].astype(np.float32)
+                fr = fr_array[:, i]
+                t0 = t0_array[:, i]
+                dt = dt_array[:, i]
 
-                k1 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0)[0]
-                k23 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, 0.5*dts)[0]
-                k4, psi0 = self.ode(fri, psi0, ls, lm, kc, tc, ts0, dts)
-                ns_array[:, i] = dts*ls*fri*((k1/6)+(2*k23/3)+(k4/6))
+                k1 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, 0*dt)[0]
+                k23 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, 0.5*dt)[0]
+                k4, int0 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, dt)
 
+                c_1 = self.cfg['a']*self.cfg['μs']*fr
+                ns_array[:, i] = c_1*dt*((k1/6)+(2*k23/3)+(k4/6))
+
+                t1_prev = t0 + dt
+                psi0 = psi0 + fr*dt
 
             ns_array = np.ma.masked_array(ns_array, mask=mask)
 
@@ -1905,8 +1907,8 @@ class Experiment():
 
             data_list.append(frame)
 
-        data = pd.concat(data_list, axis=0)
-        self.data = data
+        # data = pd.concat(data_list, axis=0)
+        # self.data = data
 
 
             # if kwargs['matrix']:
@@ -1944,102 +1946,102 @@ class Experiment():
 
         self.status['dataframe'] = True
 
-    def export_matrix(self, fh, **kwargs):
-        """
-        Parameters (* are required)
-        ----------
-        kwargs :
-            fh*: Output file handle
-            scheme*: Which region to generate a matrix for
+    # def export_matrix(self, fh, **kwargs):
+    #     """
+    #     Parameters (* are required)
+    #     ----------
+    #     kwargs :
+    #         fh*: Output file handle
+    #         scheme*: Which region to generate a matrix for
 
-        """
+    #     """
 
-        if not self.status['dataframe']:
-            raise Exception('Please run to_dataframe first')
+    #     if not self.status['dataframe']:
+    #         raise Exception('Please run to_dataframe first')
 
-        if 'scheme' not in kwargs:
-            raise KeyError('Please specify a plotting scheme')
-        elif kwargs['scheme'] not in ['seychelles']:
-            raise KeyError('Scheme not understood')
+    #     if 'scheme' not in kwargs:
+    #         raise KeyError('Please specify a plotting scheme')
+    #     elif kwargs['scheme'] not in ['seychelles']:
+    #         raise KeyError('Scheme not understood')
 
-        if kwargs['scheme'] == 'seychelles':
-            # grp_list = self.data['source_group'].unique()
-            # Reorder group list:
-            # Farquhar Grp (8) | Aldabra Grp (7) | Alphonse Grp (2) | Amirantes (9) | Southern Coral Grp (2) | Inner Islands (10)
-            grp_list = np.array([1, 3, 4, 5, 8, 11, 14, 15, 2, 6, 7, 9, 10, 12, 13, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 16, 22, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38])
-            n_grp = len(grp_list)
+    #     if kwargs['scheme'] == 'seychelles':
+    #         # grp_list = self.data['source_group'].unique()
+    #         # Reorder group list:
+    #         # Farquhar Grp (8) | Aldabra Grp (7) | Alphonse Grp (2) | Amirantes (9) | Southern Coral Grp (2) | Inner Islands (10)
+    #         grp_list = np.array([1, 3, 4, 5, 8, 11, 14, 15, 2, 6, 7, 9, 10, 12, 13, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 16, 22, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38])
+    #         n_grp = len(grp_list)
 
-            probability_matrix = self.matrix[0]
-            flux_matrix = self.matrix[1]
+    #         probability_matrix = self.matrix[0]
+    #         flux_matrix = self.matrix[1]
 
-            # for i, source_grp in enumerate(grp_list):
-            #     for j, sink_grp in enumerate(grp_list):
-            #         # Probability of a larva going from source -> sink:
-            #         # Sum of settling_larval_frac for source_group == source and
-            #         # sink_group == sink
+    #         # for i, source_grp in enumerate(grp_list):
+    #         #     for j, sink_grp in enumerate(grp_list):
+    #         #         # Probability of a larva going from source -> sink:
+    #         #         # Sum of settling_larval_frac for source_group == source and
+    #         #         # sink_group == sink
 
-            #         # Flux of larvae going from source -> sink:
-            #         # Sum of settling larvae for source_group == source and
-            #         # sink_group == sink
+    #         #         # Flux of larvae going from source -> sink:
+    #         #         # Sum of settling larvae for source_group == source and
+    #         #         # sink_group == sink
 
-            #         subset = self.data.loc[(self.data['source_group'] == source_grp) &
-            #                                (self.data['sink_group'] == sink_grp)].sum()
+    #         #         subset = self.data.loc[(self.data['source_group'] == source_grp) &
+    #         #                                (self.data['sink_group'] == sink_grp)].sum()
 
-            #         probability_matrix[i, j] = subset['settling_larval_frac']/(12*kwargs['n_years'])
-            #         flux_matrix[i, j] = subset['settling_larval_num']/(kwargs['n_years']) # Convert to flux per year
+    #         #         probability_matrix[i, j] = subset['settling_larval_frac']/(12*kwargs['n_years'])
+    #         #         flux_matrix[i, j] = subset['settling_larval_num']/(kwargs['n_years']) # Convert to flux per year
 
-            f, ax = plt.subplots(1, 1, figsize=(13, 10), constrained_layout=True)
-            font = {'family': 'normal',
-                    'weight': 'normal',
-                    'size': 16,}
-            matplotlib.rc('font', **font)
+    #         f, ax = plt.subplots(1, 1, figsize=(13, 10), constrained_layout=True)
+    #         font = {'family': 'normal',
+    #                 'weight': 'normal',
+    #                 'size': 16,}
+    #         matplotlib.rc('font', **font)
 
-            # Set up plot
-            axis = np.linspace(0, n_grp, num=n_grp+1)
-            i_coord, j_coord = np.meshgrid(axis, axis)
-            pmatrix = ax.pcolormesh(i_coord, j_coord, probability_matrix, cmap=cmr.gem,
-                                    norm=colors.LogNorm(vmin=1e-10, vmax=1e-2), shading='auto')
+    #         # Set up plot
+    #         axis = np.linspace(0, n_grp, num=n_grp+1)
+    #         i_coord, j_coord = np.meshgrid(axis, axis)
+    #         pmatrix = ax.pcolormesh(i_coord, j_coord, probability_matrix, cmap=cmr.gem,
+    #                                 norm=colors.LogNorm(vmin=1e-10, vmax=1e-2), shading='auto')
 
-            # Adjust plot
-            cax1 = f.add_axes([ax.get_position().x1+0.0,ax.get_position().y0-0.115,0.020,ax.get_position().height+0.231])
+    #         # Adjust plot
+    #         cax1 = f.add_axes([ax.get_position().x1+0.0,ax.get_position().y0-0.115,0.020,ax.get_position().height+0.231])
 
-            cb1 = plt.colorbar(pmatrix, cax=cax1, pad=0.1)
-            cb1.set_label('Probabiity of connection', size=16)
+    #         cb1 = plt.colorbar(pmatrix, cax=cax1, pad=0.1)
+    #         cb1.set_label('Probabiity of connection', size=16)
 
-            ax.set_aspect('equal', adjustable=None)
-            ax.margins(x=-0.01, y=-0.01)
-            ax.xaxis.set_ticks(np.arange(39))
-            ax.xaxis.set_ticklabels([])
-            ax.yaxis.set_ticks(np.arange(39))
-            ax.yaxis.set_ticklabels([])
-            ax.set_xlim([0, 38])
-            ax.set_ylim([0, 38])
+    #         ax.set_aspect('equal', adjustable=None)
+    #         ax.margins(x=-0.01, y=-0.01)
+    #         ax.xaxis.set_ticks(np.arange(39))
+    #         ax.xaxis.set_ticklabels([])
+    #         ax.yaxis.set_ticks(np.arange(39))
+    #         ax.yaxis.set_ticklabels([])
+    #         ax.set_xlim([0, 38])
+    #         ax.set_ylim([0, 38])
 
-            ax.tick_params(color='w', labelcolor='w')
-            for spine in ax.spines.values():
-                spine.set_edgecolor('w')
+    #         ax.tick_params(color='w', labelcolor='w')
+    #         for spine in ax.spines.values():
+    #             spine.set_edgecolor('w')
 
-            # Add dividers
-            for pos in [8, 15, 17, 26, 28, 38]:
-                ax.plot(np.array([pos, pos]), np.array([0, 38]), '-', color='w', linewidth=2)
-                ax.plot(np.array([0, 38]), np.array([pos, pos]), '-', color='w', linewidth=2)
+    #         # Add dividers
+    #         for pos in [8, 15, 17, 26, 28, 38]:
+    #             ax.plot(np.array([pos, pos]), np.array([0, 38]), '-', color='w', linewidth=2)
+    #             ax.plot(np.array([0, 38]), np.array([pos, pos]), '-', color='w', linewidth=2)
 
-            for spine in cax1.spines.values():
-                spine.set_edgecolor('w')
+    #         for spine in cax1.spines.values():
+    #             spine.set_edgecolor('w')
 
-            plt.savefig(fh, dpi=300, bbox_inches='tight')
-
-
-            # # Add labels
-            # for pos, label in zip([4, 11.5, 16, 21.5, 27, 33],
-            #                       ['Farquhar Grp', 'Aldabra Grp', 'Alphonse Grp',
-            #                        'Amirantes', 'Southern Coral Grp', 'Inner Islands']:
-            #     ax.text()
+    #         plt.savefig(fh, dpi=300, bbox_inches='tight')
 
 
-            # plt.xticks([], "", ax=ax)
-            # ax.set_ticks(np.arange(39))
-            # ax.set_xlabel("")
+    #         # # Add labels
+    #         # for pos, label in zip([4, 11.5, 16, 21.5, 27, 33],
+    #         #                       ['Farquhar Grp', 'Aldabra Grp', 'Alphonse Grp',
+    #         #                        'Amirantes', 'Southern Coral Grp', 'Inner Islands']:
+    #         #     ax.text()
+
+
+    #         # plt.xticks([], "", ax=ax)
+    #         # ax.set_ticks(np.arange(39))
+    #         # ax.set_xlabel("")
 
 
 
