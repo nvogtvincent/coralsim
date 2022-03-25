@@ -56,7 +56,7 @@ sey = Experiment()
 sey.config(dirs, preset='CMEMS', releases_per_month=1) ## Add ability to read from netcdf
 sey.generate_dict()
 time0 = timer.time()
-sey.generate_matrix(fh='cmems6400*', parameters=parameters)
+sey.generate_matrix(fh='cmems6400*', parameters=parameters, filters={'eez': [690]})
 print(timer.time()-time0)
 
 
