@@ -168,25 +168,46 @@ class Experiment():
         if 'test_params' in kwargs.keys():
             self.cfg['test_params'] = kwargs['test_params']
 
+
         @njit
-        def ode(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, h):
+        def integrate_event(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, dt):
 
-            t = t0 + h
+            sol = np.zeros_like(int0, dtype=np.float32)
 
-            surv_t = (1 - σ*(λ*(t + tc))**ν)**(1/σ)
+            # Precompute reused terms
+            gc_0 = b-a+(μs*fr)
+            gc_1 = μs*psi0
 
-            f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*(psi0+fr*(t-t0)))
-            f_2 = np.exp(t0*(b-a)) - np.exp(t1_prev*(b-a))
-            f_3 = np.exp(t*(b-a+μs*fr)) - np.exp(t0*(b-a+μs*fr))
+            f2_gc0 = np.exp(t0*(b-a))
+            f3_gc0 = np.exp(t0*gc_0)
 
-            c_2 = np.exp(μs*psi0)/(b-a)
-            c_3 = np.exp((μs*psi0)-(μs*fr*t0))/(b-a+μs*fr)
+            # Integrate
+            for h, rk_coef in zip(np.array([0, 0.5, 1], dtype=np.float32), [1/6, 2/3, 1/6]):
+                if h == 0:
+                    t = t0
+                else:
+                    t = t0 + h*dt
 
-            int1 = int0 + c_2*f_2 + c_3*f_3
+                surv_t = (1. - σ*(λ*(t + tc))**ν)**(1/σ)
 
-            return f_1 * int1, int1
+                if h == 0:
+                    f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*psi0)
+                    f_3 = np.float32([0])
+                else:
+                    f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*(psi0+fr*(t-t0)))
+                    f_3 = np.exp(t*gc_0) - f3_gc0
 
-        self.ode = ode
+                f_2 = f2_gc0 - np.exp(t1_prev*(b-a))
+                c_2 = np.exp(gc_1)/(b-a)
+                c_3 = np.exp(gc_1-(μs*fr*t0))/gc_0
+
+                int1 = int0 + c_2*f_2 + c_3*f_3
+
+                sol += rk_coef*f_1*int1
+
+            return a*μs*fr*dt*sol, int1
+
+        self.integrate_event = integrate_event
 
         self.status['config'] = True
 
@@ -1508,13 +1529,13 @@ class Experiment():
 
         if self.cfg['test_type'] == 'kernel':
             # Convert all units to days to avoid overflow in calculations
-            a = self.cfg['test_params']['a']*86400
-            b = self.cfg['test_params']['b']*86400
-            tc = self.cfg['test_params']['tc']/86400
-            μs = self.cfg['test_params']['μs']*86400
-            σ = self.cfg['test_params']['σ']
-            λ = self.cfg['test_params']['λ']*86400
-            ν = self.cfg['test_params']['ν']
+            a = np.float32([self.cfg['test_params']['a']*86400])
+            b = np.float32([self.cfg['test_params']['b']*86400])
+            tc = np.float32([self.cfg['test_params']['tc']/86400])
+            μs = np.float32([self.cfg['test_params']['μs']*86400])
+            σ = np.float32([self.cfg['test_params']['σ']])
+            λ = np.float32([self.cfg['test_params']['λ']*86400])
+            ν = np.float32([self.cfg['test_params']['ν']])
 
             dt = self.cfg['dt'].total_seconds()/86400
 
@@ -1746,12 +1767,12 @@ class Experiment():
             raise KeyError('Please supply a parameters dictionary.')
         else:
             # Convert all units to days to prevent overflows from large numbers
-            self.cfg['a'] = np.array(kwargs['parameters']['a'], dtype=np.float32)*86400
-            self.cfg['b'] = np.array(kwargs['parameters']['b'], dtype=np.float32)*86400
-            self.cfg['tc'] = np.array(kwargs['parameters']['tc'], dtype=np.float32)/86400
-            self.cfg['μs'] = np.array(kwargs['parameters']['μs'], dtype=np.float32)*86400
+            self.cfg['a'] = np.array(kwargs['parameters']['a']*86400, dtype=np.float32)
+            self.cfg['b'] = np.array(kwargs['parameters']['b']*86400, dtype=np.float32)
+            self.cfg['tc'] = np.array(kwargs['parameters']['tc']/86400, dtype=np.float32)
+            self.cfg['μs'] = np.array(kwargs['parameters']['μs']*86400, dtype=np.float32)
             self.cfg['σ'] = np.array(kwargs['parameters']['σ'], dtype=np.float32)
-            self.cfg['λ'] = np.array(kwargs['parameters']['λ'], dtype=np.float32)*86400
+            self.cfg['λ'] = np.array(kwargs['parameters']['λ']*86400, dtype=np.float32)
             self.cfg['ν'] = np.array(kwargs['parameters']['ν'], dtype=np.float32)
 
         if 'fh' not in kwargs.keys():
@@ -1812,7 +1833,11 @@ class Experiment():
         # Split files across processors
         fh_list_chunk = np.array_split(fh_list, size)[rank]
 
-        for fhi, fh in tqdm(enumerate(fh_list_chunk), total=len(fh_list_chunk)):
+        # Start progress bar
+        if rank == 0:
+            pbar = tqdm(total = len(fh_list_chunk))
+
+        for fhi, fh in enumerate(fh_list_chunk):
             with Dataset(fh, mode='r') as nc:
                 e_num = nc.variables['e_num'][:] # Number of events stored per trajectory
                 n_traj = np.shape(e_num)[0] # Number of trajectories in file
@@ -1858,12 +1883,13 @@ class Experiment():
                 t0 = t0_array[:, i]
                 dt = dt_array[:, i]
 
-                k1 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, 0*dt)[0]
-                k23 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, 0.5*dt)[0]
-                k4, int0 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, dt)
+                # k1 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, 0*dt)[0]
+                # k23 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, 0.5*dt)[0]
+                # k4, int0 = self.ode(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, dt)
 
-                c_1 = self.cfg['a']*self.cfg['μs']*fr
-                ns_array[:, i] = c_1*dt*((k1/6)+(2*k23/3)+(k4/6))
+                # c_1 = self.cfg['a']*self.cfg['μs']*fr
+                # ns_array[:, i] = c_1*dt*((k1/6)+(2*k23/3)+(k4/6))
+                ns_array[:, i], int0 = self.integrate_event(psi0, int0, fr, self.cfg['a'], self.cfg['b'], self.cfg['tc'], self.cfg['μs'], self.cfg['σ'], self.cfg['λ'], self.cfg['ν'], t0, t1_prev, dt)
 
                 t1_prev = t0 + dt
                 psi0 = psi0 + fr*dt
@@ -1884,6 +1910,9 @@ class Experiment():
             test = np.histogram2d(grp_array, grp0_array, bins=[np.arange(grp0_array.max()+1)+0.5, np.arange(grp0_array.max()+1)+0.5],
                                   weights=ns_array)[0]
             print()
+            comm.Barrier()
+            if rank == 0:
+                pbar.update(1)
 
             # # Obtain origin reef cover as a proxy for total larval number and project
             # rc0 = translate(idx0_array, self.dicts['rc'])
