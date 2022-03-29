@@ -146,6 +146,61 @@ class Experiment():
                  'plot': False,
                  'plot_type': 'grp',}
 
+        CMEMS = {'preset': 'WINDS',
+                 'grid_filename': 'coral_grid.nc',
+                 'model_filenames': 'WINDS_SFC*.nc',
+
+                 # Variable names for grid file
+                 'grid_rc_varname' : 'reef_cover_w', # Reef cover
+                 'grid_rf_varname' : 'reef_frac_w',  # Reef fraction
+                 'grid_eez_varname': 'reef_eez_w',   # Reef EEZ
+                 'grid_grp_varname': 'reef_grp_w',   # Reef group
+                 'grid_idx_varname': 'reef_idx_w',   # Reef index,
+
+                 # Variable types
+                 'rc_dtype': np.int32,
+                 'rf_dtype': np.float32,
+                 'eez_dtype': np.int16,
+                 'grp_dtype': np.uint8,
+                 'idx_dtype': np.uint16,
+
+                 # Dimension names for grid file
+                 'lon_rho_dimname': 'lon_rho_w',
+                 'lat_rho_dimname': 'lat_rho_w',
+                 'lon_psi_dimname': 'lon_psi_w',
+                 'lat_psi_dimname': 'lat_psi_w',
+
+                 # Variable names for grid file
+                 'u_varname': 'u_surf',
+                 'v_varname': 'v_surf',
+
+                 # Dimension names for model data (psi-grid in this case)
+                 'lon_dimname': 'lon_u',
+                 'lat_dimname': 'lat_v',
+                 'time_dimname': 'time',
+
+                 # Parameters for trajectory testing mode
+                 'rel_lon0': 49.34,
+                 'rel_lon1': 49.34,
+                 'rel_lat0': -12.3,
+                 'rel_lat1': -12.0,
+                 'view_lon0': 47.5,
+                 'view_lon1': 49.5,
+                 'view_lat0': -13.5,
+                 'view_lat1': -11.5,
+                 'test_number': 100,
+                 'lsm_varname': 'lsm_c',
+
+                 # Grid type
+                 'grid' : 'C',
+
+                 # Velocity interpolation method
+                 'interp_method': 'cgrid_velocity',
+
+                 # Plotting parameters
+                 'plot': False,
+                 'plot_type': 'grp',}
+
         PRESETS = {'CMEMS': CMEMS}
 
         if kwargs['preset'] not in PRESETS.keys():
@@ -172,7 +227,7 @@ class Experiment():
         @njit
         def integrate_event(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, dt):
 
-            sol = np.zeros_like(int0, dtype=np.float32)
+            sol = np.zeros_like(int0, dtype=np.float64)
 
             # Precompute reused terms
             gc_0 = b-a+(μs*fr)
@@ -182,7 +237,7 @@ class Experiment():
             f3_gc0 = np.exp(t0*gc_0)
 
             # Integrate
-            for h, rk_coef in zip(np.array([0, 0.5, 1], dtype=np.float32), [1/6, 2/3, 1/6]):
+            for h, rk_coef in zip(np.array([0, 0.5, 1], dtype=np.float64), [1/6, 2/3, 1/6]):
                 if h == 0:
                     t = t0
                 else:
@@ -192,7 +247,7 @@ class Experiment():
 
                 if h == 0:
                     f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*psi0)
-                    f_3 = np.float32([0])
+                    f_3 = np.float64([0])
                 else:
                     f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*(psi0+fr*(t-t0)))
                     f_3 = np.exp(t*gc_0) - f3_gc0
@@ -205,7 +260,7 @@ class Experiment():
 
                 sol += rk_coef*f_1*int1
 
-            return a*μs*fr*dt*sol, int1
+            return (a*μs*fr*dt*sol).astype(np.float32), int1.astype(np.float32)
 
         self.integrate_event = integrate_event
 
@@ -1766,13 +1821,13 @@ class Experiment():
             raise KeyError('Please supply a parameters dictionary.')
         else:
             # Convert all units to days to prevent overflows from large numbers
-            self.cfg['a'] = np.array(kwargs['parameters']['a']*86400, dtype=np.float32)
-            self.cfg['b'] = np.array(kwargs['parameters']['b']*86400, dtype=np.float32)
-            self.cfg['tc'] = np.array(kwargs['parameters']['tc']/86400, dtype=np.float32)
-            self.cfg['μs'] = np.array(kwargs['parameters']['μs']*86400, dtype=np.float32)
-            self.cfg['σ'] = np.array(kwargs['parameters']['σ'], dtype=np.float32)
-            self.cfg['λ'] = np.array(kwargs['parameters']['λ']*86400, dtype=np.float32)
-            self.cfg['ν'] = np.array(kwargs['parameters']['ν'], dtype=np.float32)
+            self.cfg['a'] = np.array(kwargs['parameters']['a']*86400, dtype=np.float64)
+            self.cfg['b'] = np.array(kwargs['parameters']['b']*86400, dtype=np.float64)
+            self.cfg['tc'] = np.array(kwargs['parameters']['tc']/86400, dtype=np.float64)
+            self.cfg['μs'] = np.array(kwargs['parameters']['μs']*86400, dtype=np.float64)
+            self.cfg['σ'] = np.array(kwargs['parameters']['σ'], dtype=np.float64)
+            self.cfg['λ'] = np.array(kwargs['parameters']['λ']*86400, dtype=np.float64)
+            self.cfg['ν'] = np.array(kwargs['parameters']['ν'], dtype=np.float64)
 
         if 'fh' not in kwargs.keys():
             raise KeyError('Please supply a list of files to analyse.')
@@ -1780,7 +1835,12 @@ class Experiment():
         if 'rpm' not in self.cfg.keys():
             raise KeyError('Please supply the number of separate releases per month in config.')
 
-        self.cfg['ldens'] = 1
+        self.cfg['ldens'] = 1 # There's no good reason to change this yet
+
+        if 'subset' in kwargs.keys():
+            self.cfg['subset'] = int(kwargs['subset'])
+        else:
+            self.cfg['subset'] = False
 
         # Define translation function
         def translate(a, d):
@@ -1809,11 +1869,18 @@ class Experiment():
 
                 # self.cfg['dt'] = int(nc.timestep_seconds)/86400
                 # self.cfg['lpc'] = int(nc.larvae_per_cell)
+
                 # TEMP HACK ONLY:
-                dt = 3600/86400
-                lpc = 6400
+                self.cfg['dt'] = 3600/86400
+                self.cfg['lpc'] = 6400
 
                 # TEMP HACK REMOVED:
+                if self.cfg['subset']:
+                    if self.cfg['lpc']/self.cfg['subset'] < 16:
+                        raise Exception('Subset too high - aliasing may be an issue.')
+                    else:
+                        self.cfg['lpc'] /= self.cfg['subset']
+
                 # if self.cfg['tc']*86400 < int(nc.min_competency_seconds):
                     # raise Exception('Minimum competency chosen is smaller than the value used at run-time (' + str(int(nc.min_competency_seconds)) +'s).')
 
@@ -1828,8 +1895,6 @@ class Experiment():
             n_months = (t0_list.max()-t0_list.min()+1)*12
             matrix_t_axis = np.arange(t0_list.min(), t0_list.max()+1, 1/12)
             root_y = t0_list.min()
-            # t0_first = [int(np.floor(t0_list.max())), int(np.round(12*np.modf(t0_list.max())[0]+1, 0))]
-            # t0_last = [int(np.floor(t0_list.min())), int(np.round(12*np.modf(t0_list.min())[0]+1, 0))]
 
             # In this MPI implementation, we split files across processes (assuming
             # that each file is small enough for all to fit into memory)
@@ -1863,7 +1928,7 @@ class Experiment():
             grp_list, grp_bnds = None, None
             p_matrix, f_matrix, t_matrix = None, None, None
             p_matrix_chunk, f_matrix_chunk, t_matrix_chunk = None, None, None
-            root_y, e_num, dt, lpc = None, None, None, None
+            root_y, e_num, self.cfg['dt'], self.cfg['lpc'] = None, None, None, None
             pbar_step = None
 
         comm.Barrier()
@@ -1877,8 +1942,8 @@ class Experiment():
         t_matrix_chunk = comm.bcast(t_matrix_chunk, root=0)
         root_y = comm.bcast(root_y, root=0)
         self.cfg['max_events'] = comm.bcast(e_num, root=0)
-        self.cfg['dt'] = comm.bcast(dt, root=0)
-        self.cfg['lpc'] = comm.bcast(lpc, root=0)
+        self.cfg['dt'] = comm.bcast(self.cfg['dt'], root=0)
+        self.cfg['lpc'] = comm.bcast(self.cfg['lpc'], root=0)
 
         chunk_status = 0
 
@@ -1889,8 +1954,16 @@ class Experiment():
         for fhi, fh in enumerate(fh_list_chunk):
             if fh != None:
                 with Dataset(fh, mode='r') as nc:
-                    e_num = nc.variables['e_num'][:] # Number of events stored per trajectory
-                    n_traj = np.shape(e_num)[0] # Number of trajectories in file
+                    pid = nc.variables['trajectory'][:] # Trajectory ID
+
+                    # Filter IDs
+                    if self.cfg['subset']:
+                        sub_id = np.where(pid%self.cfg['subset'] == 0)[0]
+                    else:
+                        sub_id = np.arange(len(pid))
+
+                    e_num = nc.variables['e_num'][:][sub_id] # Number of events stored per trajectory
+                    n_traj = np.shape(e_num)[0] # Number of trajectories in file/subset
 
                     if not n_traj:
                         # Skip if there are no trajectories stored in file
@@ -1909,11 +1982,11 @@ class Experiment():
                     ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
 
                     for i in range(self.cfg['max_events']):
-                        idx_array[:, i] = nc.variables['i' + str(i)][:, 0]
-                        t0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*self.cfg['dt']-self.cfg['tc'] # Time at arrival
-                        dt_array[:, i] = nc.variables['dt' + str(i)][:, 0]*self.cfg['dt'] # Time at site
+                        idx_array[:, i] = nc.variables['i' + str(i)][:, 0][sub_id]
+                        t0_array[:, i] = nc.variables['ts' + str(i)][:, 0][sub_id]*self.cfg['dt']-self.cfg['tc'] # Time at arrival
+                        dt_array[:, i] = nc.variables['dt' + str(i)][:, 0][sub_id]*self.cfg['dt'] # Time at site
 
-                    idx0_array = nc.variables['idx0'][:]
+                    idx0_array = nc.variables['idx0'][:][sub_id]
 
                     mask = (idx_array == 0)
 
@@ -1933,18 +2006,29 @@ class Experiment():
                     t0 = t0_array[:, i]
                     dt = dt_array[:, i]
 
-                    ns_array[:, i], int0 = self.integrate_event(psi0, int0, fr,
-                                                                self.cfg['a'],
-                                                                self.cfg['b'],
-                                                                self.cfg['tc'],
-                                                                self.cfg['μs'],
-                                                                self.cfg['σ'],
-                                                                self.cfg['λ'],
-                                                                self.cfg['ν'],
-                                                                t0, t1_prev, dt)
+                    # Note - this integration is carried out in double precision
+                    # due to some of the very large numbers in sub-steps. There
+                    # will definitely be a more efficient/precise way of doing
+                    # this, but I sadly do not have the time right now...
+                    ns_array[:, i], int0 = self.integrate_event(psi0.astype(np.float64),
+                                                                int0.astype(np.float64),
+                                                                fr.astype(np.float64),
+                                                                self.cfg['a'].astype(np.float64),
+                                                                self.cfg['b'].astype(np.float64),
+                                                                self.cfg['tc'].astype(np.float64),
+                                                                self.cfg['μs'].astype(np.float64),
+                                                                self.cfg['σ'].astype(np.float64),
+                                                                self.cfg['λ'].astype(np.float64),
+                                                                self.cfg['ν'].astype(np.float64),
+                                                                t0.astype(np.float64),
+                                                                t1_prev.astype(np.float64),
+                                                                dt.astype(np.float64))
 
                     t1_prev = t0 + dt
                     psi0 = psi0 + fr*dt
+
+                # Remask for small numbers of NaNs that may appear during integration
+                # mask[~np.isnan(ns_array)] = True
 
                 ns_array = np.ma.masked_array(ns_array, mask=mask).compressed()
                 t0_array = np.ma.masked_array(t0_array, mask=mask).compressed()
@@ -2051,6 +2135,8 @@ class Experiment():
 
         # A last barrier is needed to keep matrices in memory for rank-0
         comm.Barrier()
+
+        return [p_matrix, f_matrix, t_matrix]
 
         self.status['matrix'] = True
 
