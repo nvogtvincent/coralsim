@@ -144,6 +144,9 @@ class Experiment():
                  # Grid type
                  'grid' : 'A',
 
+                 # Maximum number of events
+                 'e_num' : 30,
+
                  # Velocity interpolation method
                  'interp_method': 'freeslip',
 
@@ -180,24 +183,32 @@ class Experiment():
                  'v_varname': 'v_surf',
 
                  # Dimension names for model data (psi-grid in this case)
-                 'lon_dimname': 'lon_u',
-                 'lat_dimname': 'lat_v',
-                 'time_dimname': 'time',
+                 'lon_dimname': 'nav_lon_u',
+                 'lat_dimname': 'nav_lat_v',
+                 'time_dimname': 'time_counter',
+
+                 'lon_u_dimname': 'nav_lon_u',
+                 'lat_u_dimname': 'nav_lat_u',
+                 'lon_v_dimname': 'nav_lon_v',
+                 'lat_v_dimname': 'nav_lat_v',
 
                  # Parameters for trajectory testing mode
-                 'rel_lon0': 49.34,
-                 'rel_lon1': 49.34,
-                 'rel_lat0': -12.3,
-                 'rel_lat1': -12.0,
-                 'view_lon0': 47.5,
-                 'view_lon1': 49.5,
-                 'view_lat0': -13.5,
-                 'view_lat1': -11.5,
+                 'rel_lon0': 48.8,
+                 'rel_lon1': 48.8,
+                 'rel_lat0': -12.5,
+                 'rel_lat1': -12.3,
+                 'view_lon0': 48.6,
+                 'view_lon1': 48.9,
+                 'view_lat0': -12.5,
+                 'view_lat1': -12.3,
                  'test_number': 100,
-                 'lsm_varname': 'lsm_c',
+                 'lsm_varname': 'lsm_w',
 
                  # Grid type
                  'grid' : 'C',
+
+                 # Maximum number of events
+                 'e_num' : 30,
 
                  # Velocity interpolation method
                  'interp_method': 'cgrid_velocity',
@@ -206,7 +217,8 @@ class Experiment():
                  'plot': False,
                  'plot_type': 'grp',}
 
-        PRESETS = {'CMEMS': CMEMS}
+        PRESETS = {'CMEMS': CMEMS,
+                   'WINDS': WINDS}
 
         if kwargs['preset'] not in PRESETS.keys():
             raise KeyError('Preset not recognised.')
@@ -288,21 +300,21 @@ class Experiment():
         # Import grid axes
         self.axes = {}
 
-        if self.cfg['grid'] == 'A':
-            with Dataset(self.fh['grid'], mode='r') as nc:
-                self.axes['lon_rho'] = np.array(nc.variables[self.cfg['lon_rho_dimname']][:])
-                self.axes['lat_rho'] = np.array(nc.variables[self.cfg['lat_rho_dimname']][:])
-                self.axes['nx_rho'] = len(self.axes['lon_rho'])
-                self.axes['ny_rho'] = len(self.axes['lat_rho'])
+        # if self.cfg['grid'] == 'A':
+        with Dataset(self.fh['grid'], mode='r') as nc:
+            self.axes['lon_rho'] = np.array(nc.variables[self.cfg['lon_rho_dimname']][:])
+            self.axes['lat_rho'] = np.array(nc.variables[self.cfg['lat_rho_dimname']][:])
+            self.axes['nx_rho'] = len(self.axes['lon_rho'])
+            self.axes['ny_rho'] = len(self.axes['lat_rho'])
 
-                self.axes['lon_psi'] = np.array(nc.variables[self.cfg['lon_psi_dimname']][:])
-                self.axes['lat_psi'] = np.array(nc.variables[self.cfg['lat_psi_dimname']][:])
-                self.axes['nx_psi'] = len(self.axes['lon_psi'])
-                self.axes['ny_psi'] = len(self.axes['lat_psi'])
-        elif self.cfg['grid'] == 'C':
-            raise NotImplementedError('C-grids have not yet been implemented.')
-        else:
-            raise KeyError('Grid type not understood.')
+            self.axes['lon_psi'] = np.array(nc.variables[self.cfg['lon_psi_dimname']][:])
+            self.axes['lat_psi'] = np.array(nc.variables[self.cfg['lat_psi_dimname']][:])
+            self.axes['nx_psi'] = len(self.axes['lon_psi'])
+            self.axes['ny_psi'] = len(self.axes['lat_psi'])
+        # elif self.cfg['grid'] == 'C':
+        #     raise NotImplementedError('C-grids have not yet been implemented.')
+        # else:
+        #     raise KeyError('Grid type not understood.')
 
         # Import currents
 
@@ -319,8 +331,19 @@ class Experiment():
                                                  interp_method={'U': self.cfg['interp_method'],
                                                                 'V': self.cfg['interp_method']},
                                                  mesh='spherical', allow_time_extrapolation=False)
+        elif self.cfg['grid'] == 'C':
+            self.fieldset = FieldSet.from_nemo(filenames=self.fh['model'],
+                                               variables={'U': self.cfg['u_varname'],
+                                                          'V': self.cfg['v_varname']},
+                                               dimensions={'U': {'lon': self.cfg['lon_dimname'],
+                                                                 'lat': self.cfg['lat_dimname'],
+                                                                 'time': self.cfg['time_dimname']},
+                                                           'V': {'lon': self.cfg['lon_dimname'],
+                                                                 'lat': self.cfg['lat_dimname'],
+                                                                 'time': self.cfg['time_dimname']}},
+                                               mesh='spherical', allow_time_extrapolation=False)
         else:
-            raise NotImplementedError('C-grids have not yet been implemented.')
+            raise KeyError('Grid type not understood.')
 
         self.fields = {}
 
@@ -353,8 +376,33 @@ class Experiment():
 
                 self.fieldset.add_field(scratch_field)
 
-        else:
-            raise NotImplementedError('C-grids have not yet been implemented.')
+        elif self.cfg['grid'] == 'C':
+            self.field_list = ['rc', 'rf', 'eez', 'grp', 'idx']
+
+            for field in self.field_list:
+                field_varname = self.cfg['grid_' + field + '_varname']
+
+                # Firstly verify that dimensions are correct
+                with Dataset(self.fh['grid'], mode='r') as nc:
+                    self.fields[field] = nc.variables[field_varname][:]
+
+                if not np.array_equiv(np.shape(self.fields[field]),
+                                      (self.axes['ny_rho'], self.axes['nx_rho'])):
+                    raise Exception('Field ' + field_varname + ' has incorrect dimensions')
+
+                if field in ['rc', 'eez', 'grp', 'idx']:
+                    if np.max(self.fields[field]) > np.iinfo(self.cfg[field + '_dtype']).max:
+                        raise Exception('Maximum value exceeded in ' + field_varname + '.')
+
+                # Use OceanParcels routine to import field
+                scratch_field = Field.from_netcdf(self.fh['grid'],
+                                                  variable=self.cfg['grid_' + str(field) + '_varname'],
+                                                  dimensions={'lon': self.cfg['lon_rho_dimname'],
+                                                              'lat': self.cfg['lat_rho_dimname']},
+                                                  interp_method='nearest', mesh='spherical',
+                                                  allow_time_extrapolation=True)
+                scratch_field.name = field
+                self.fieldset.add_field(scratch_field)
 
         self.status['fieldset'] = True
 
@@ -533,9 +581,36 @@ class Experiment():
                 for field in self.field_list:
                     value_k = self.fields[field][i, j]
                     particles[field][k*self.cfg['pn2']:(k+1)*self.cfg['pn2']] = value_k
-
         else:
-            raise NotImplementedError('C-grids have not been implemented yet!')
+            # For cell rho[i, j], the surrounding psi cells are:
+            # psi[i-1, j-1] (SW)
+            # psi[i-1, j]   (SE)
+            # psi[i, j-1]   (NW)
+            # psi[i, j]     (NE)
+
+            for k, (i, j) in enumerate(zip(reef_yidx, reef_xidx)):
+                # Firstly calculate the basic particle grid (may be variable for
+                # curvilinear grids)
+
+                dX = lon_psi_grid[i, j] - lon_psi_grid[i, j-1] # Grid spacing
+                dY = lat_rho_grid[i, j] - lat_rho_grid[i-1, j] # Grid spacing
+                dx = dX/self.cfg['pn']                         # Particle spacing
+                dy = dY/self.cfg['pn']                         # Particle spacing
+
+                gx = np.linspace(lon_rho_grid[i, j-1]+(dx/2),  # Particle x locations
+                                 lon_rho_grid[i, j]-(dx/2), num=self.cfg['pn'])
+
+                gy = np.linspace(lat_rho_grid[i-1, j]+(dy/2),  # Particle y locations
+                                 lat_rho_grid[i, j]-(dy/2), num=self.cfg['pn'])
+
+                gx, gy = [grid.flatten() for grid in np.meshgrid(gx, gy)] # Flattened arrays
+
+                particles['lon'][k*self.cfg['pn2']:(k+1)*self.cfg['pn2']] = gx
+                particles['lat'][k*self.cfg['pn2']:(k+1)*self.cfg['pn2']] = gy
+
+                for field in self.field_list:
+                    value_k = self.fields[field][i, j]
+                    particles[field][k*self.cfg['pn2']:(k+1)*self.cfg['pn2']] = value_k
 
         # Now export to DataFrame
         particles_df = pd.DataFrame({'lon': particles['lon'],
@@ -551,15 +626,14 @@ class Experiment():
         self.particles = particles_df
 
         # Set up the particle class
-        self.larva = self.build_larva(self.cfg['test'])
+        self.larva = self.build_larva(self.cfg['e_num'], self.cfg['test'])
 
         # Override for the trajectory testing mode
         if self.cfg['test']:
             if self.cfg['test_type'] == 'traj':
-                # Override the run time (no long run time is needed for
-                # these experiments) and set t0 to first time frame
+                # Set t0 to first time frame
                 self.cfg['t0'] = model_start
-                self.cfg['run_time'] = timedelta(days=20)
+
                 # Override all properties with a smaller testing region
                 particles['lon'] = np.linspace(self.cfg['rel_lon0'],
                                                self.cfg['rel_lon1'],
@@ -586,13 +660,18 @@ class Experiment():
 
         # Stop writing unnecessary variables
         self.pset.set_variable_write_status('depth', 'False')
-        self.pset.set_variable_write_status('lon', 'False')
-        self.pset.set_variable_write_status('lat', 'False')
         self.pset.set_variable_write_status('time', 'False')
+
+        if not self.cfg['test']:
+            self.pset.set_variable_write_status('lon', 'False')
+            self.pset.set_variable_write_status('lat', 'False')
 
         # Add maximum age to fieldset
         self.fieldset.add_constant('max_age', int(self.cfg['run_time']/self.cfg['dt']))
         assert self.fieldset.max_age < np.iinfo(np.uint16).max
+
+        # Add e_num to fieldset
+        self.fieldset.add_constant('e_num', int(self.cfg['e_num']))
 
         # Add test parameters to fieldset
         if self.cfg['test']:
@@ -608,7 +687,7 @@ class Experiment():
             # In testing mode, we override the minimum competency to use tc
             self.fieldset.add_constant('min_competency', int(self.cfg['test_params']['tc']/self.cfg['dt'].total_seconds()))
         else:
-            self.fieldset.add_constant('min_competency', int(self.cfg['min_competency']['tc']/self.cfg['dt']))
+            self.fieldset.add_constant('min_competency', int(self.cfg['min_competency']/self.cfg['dt']))
 
         # Generate kernels
         self.kernel = (self.pset.Kernel(AdvectionRK4) + self.pset.Kernel(self.build_event_kernel(self.cfg['test'])))
@@ -648,7 +727,7 @@ class Experiment():
         self.status['particleset'] = True
 
 
-    def build_larva(self, test):
+    def build_larva(self, e_num, test):
         """
         This script builds the larva class as a test or operational class based
         on whether test is True or False
@@ -729,111 +808,11 @@ class Experiment():
                 e_num = Variable('e_num', dtype=np.int16, initial=0, to_write=True)
 
                 # Event variables (i = idx, t = arrival time(step), dt = time(steps) at reef)
-                i0 = Variable('i0', dtype=np.uint16, initial=0, to_write=True)
-                ts0 = Variable('ts0', dtype=np.uint16, initial=0, to_write=True)
-                dt0 = Variable('dt0', dtype=np.uint16, initial=0, to_write=True)
-
-                i1 = Variable('i1', dtype=np.uint16, initial=0, to_write=True)
-                ts1 = Variable('ts1', dtype=np.uint16, initial=0, to_write=True)
-                dt1 = Variable('dt1', dtype=np.uint16, initial=0, to_write=True)
-
-                i2 = Variable('i2', dtype=np.uint16, initial=0, to_write=True)
-                ts2 = Variable('ts2', dtype=np.uint16, initial=0, to_write=True)
-                dt2 = Variable('dt2', dtype=np.uint16, initial=0, to_write=True)
-
-                i3 = Variable('i3', dtype=np.uint16, initial=0, to_write=True)
-                ts3 = Variable('ts3', dtype=np.uint16, initial=0, to_write=True)
-                dt3 = Variable('dt3', dtype=np.uint16, initial=0, to_write=True)
-
-                i4 = Variable('i4', dtype=np.uint16, initial=0, to_write=True)
-                ts4 = Variable('ts4', dtype=np.uint16, initial=0, to_write=True)
-                dt4 = Variable('dt4', dtype=np.uint16, initial=0, to_write=True)
-
-                i5 = Variable('i5', dtype=np.uint16, initial=0, to_write=True)
-                ts5 = Variable('ts5', dtype=np.uint16, initial=0, to_write=True)
-                dt5 = Variable('dt5', dtype=np.uint16, initial=0, to_write=True)
-
-                i6 = Variable('i6', dtype=np.uint16, initial=0, to_write=True)
-                ts6 = Variable('ts6', dtype=np.uint16, initial=0, to_write=True)
-                dt6 = Variable('dt6', dtype=np.uint16, initial=0, to_write=True)
-
-                i7 = Variable('i7', dtype=np.uint16, initial=0, to_write=True)
-                ts7 = Variable('ts7', dtype=np.uint16, initial=0, to_write=True)
-                dt7 = Variable('dt7', dtype=np.uint16, initial=0, to_write=True)
-
-                i8 = Variable('i8', dtype=np.uint16, initial=0, to_write=True)
-                ts8 = Variable('ts8', dtype=np.uint16, initial=0, to_write=True)
-                dt8 = Variable('dt8', dtype=np.uint16, initial=0, to_write=True)
-
-                i9 = Variable('i9', dtype=np.uint16, initial=0, to_write=True)
-                ts9 = Variable('ts9', dtype=np.uint16, initial=0, to_write=True)
-                dt9 = Variable('dt9', dtype=np.uint16, initial=0, to_write=True)
-
-                i10 = Variable('i10', dtype=np.uint16, initial=0, to_write=True)
-                ts10 = Variable('ts10', dtype=np.uint16, initial=0, to_write=True)
-                dt10 = Variable('dt10', dtype=np.uint16, initial=0, to_write=True)
-
-                i11 = Variable('i11', dtype=np.uint16, initial=0, to_write=True)
-                ts11 = Variable('ts11', dtype=np.uint16, initial=0, to_write=True)
-                dt11 = Variable('dt11', dtype=np.uint16, initial=0, to_write=True)
-
-                i12 = Variable('i12', dtype=np.uint16, initial=0, to_write=True)
-                ts12 = Variable('ts12', dtype=np.uint16, initial=0, to_write=True)
-                dt12 = Variable('dt12', dtype=np.uint16, initial=0, to_write=True)
-
-                i13 = Variable('i13', dtype=np.uint16, initial=0, to_write=True)
-                ts13 = Variable('ts13', dtype=np.uint16, initial=0, to_write=True)
-                dt13 = Variable('dt13', dtype=np.uint16, initial=0, to_write=True)
-
-                i14 = Variable('i14', dtype=np.uint16, initial=0, to_write=True)
-                ts14 = Variable('ts14', dtype=np.uint16, initial=0, to_write=True)
-                dt14 = Variable('dt14', dtype=np.uint16, initial=0, to_write=True)
-
-                i15 = Variable('i15', dtype=np.uint16, initial=0, to_write=True)
-                ts15 = Variable('ts15', dtype=np.uint16, initial=0, to_write=True)
-                dt15 = Variable('dt15', dtype=np.uint16, initial=0, to_write=True)
-
-                i16 = Variable('i16', dtype=np.uint16, initial=0, to_write=True)
-                ts16 = Variable('ts16', dtype=np.uint16, initial=0, to_write=True)
-                dt16 = Variable('dt16', dtype=np.uint16, initial=0, to_write=True)
-
-                i17 = Variable('i17', dtype=np.uint16, initial=0, to_write=True)
-                ts17 = Variable('ts17', dtype=np.uint16, initial=0, to_write=True)
-                dt17 = Variable('dt17', dtype=np.uint16, initial=0, to_write=True)
-
-                i18 = Variable('i18', dtype=np.uint16, initial=0, to_write=True)
-                ts18 = Variable('ts18', dtype=np.uint16, initial=0, to_write=True)
-                dt18 = Variable('dt18', dtype=np.uint16, initial=0, to_write=True)
-
-                i19 = Variable('i19', dtype=np.uint16, initial=0, to_write=True)
-                ts19 = Variable('ts19', dtype=np.uint16, initial=0, to_write=True)
-                dt19 = Variable('dt19', dtype=np.uint16, initial=0, to_write=True)
+                # are added dynamically
 
                 ##################################################################
                 # TEMPORARY TESTING VARIABLES ####################################
                 ##################################################################
-
-                # Larvae lost to sites
-                Ns0 = Variable('Ns0', dtype=np.float32, initial=0., to_write=True)
-                Ns1 = Variable('Ns1', dtype=np.float32, initial=0., to_write=True)
-                Ns2 = Variable('Ns2', dtype=np.float32, initial=0., to_write=True)
-                Ns3 = Variable('Ns3', dtype=np.float32, initial=0., to_write=True)
-                Ns4 = Variable('Ns4', dtype=np.float32, initial=0., to_write=True)
-                Ns5 = Variable('Ns5', dtype=np.float32, initial=0., to_write=True)
-                Ns6 = Variable('Ns6', dtype=np.float32, initial=0., to_write=True)
-                Ns7 = Variable('Ns7', dtype=np.float32, initial=0., to_write=True)
-                Ns8 = Variable('Ns8', dtype=np.float32, initial=0., to_write=True)
-                Ns9 = Variable('Ns9', dtype=np.float32, initial=0., to_write=True)
-                Ns10 = Variable('Ns10', dtype=np.float32, initial=0., to_write=True)
-                Ns11 = Variable('Ns11', dtype=np.float32, initial=0., to_write=True)
-                Ns12 = Variable('Ns12', dtype=np.float32, initial=0., to_write=True)
-                Ns13 = Variable('Ns13', dtype=np.float32, initial=0., to_write=True)
-                Ns14 = Variable('Ns14', dtype=np.float32, initial=0., to_write=True)
-                Ns15 = Variable('Ns15', dtype=np.float32, initial=0., to_write=True)
-                Ns16 = Variable('Ns16', dtype=np.float32, initial=0., to_write=True)
-                Ns17 = Variable('Ns17', dtype=np.float32, initial=0., to_write=True)
-                Ns18 = Variable('Ns18', dtype=np.float32, initial=0., to_write=True)
-                Ns19 = Variable('Ns19', dtype=np.float32, initial=0., to_write=True)
 
                 # Number of larvae accumulated in the current reef
                 L1 = Variable('L1', dtype=np.float64, initial=1., to_write=True) # Pre-competent larvae
@@ -848,7 +827,6 @@ class Experiment():
 
                 # Mortality coefficient mu_m
                 mm = Variable('mm', dtype=np.float64, initial=0., to_write=True)
-
 
         else:
             class larva(JITParticle):
@@ -921,86 +899,15 @@ class Experiment():
                 e_num = Variable('e_num', dtype=np.uint8, initial=0, to_write=True)
 
                 # Event variables (i = idx, t = arrival time(step), dt = time(steps) at reef)
-                i0 = Variable('i0', dtype=np.uint16, initial=0, to_write=True)
-                ts0 = Variable('ts0', dtype=np.uint16, initial=0, to_write=True)
-                dt0 = Variable('dt0', dtype=np.uint16, initial=0, to_write=True)
+                # are added dynamically
 
-                i1 = Variable('i1', dtype=np.uint16, initial=0, to_write=True)
-                ts1 = Variable('ts1', dtype=np.uint16, initial=0, to_write=True)
-                dt1 = Variable('dt1', dtype=np.uint16, initial=0, to_write=True)
+        for e_val in range(e_num):
+            setattr(larva, 'i' + str(e_val), Variable('i' + str(e_val), dtype=np.uint16, initial=0, to_write=True))
+            setattr(larva, 'ts' + str(e_val), Variable('ts' + str(e_val), dtype=np.uint16, initial=0, to_write=True))
+            setattr(larva, 'dt' + str(e_val), Variable('dt' + str(e_val), dtype=np.uint16, initial=0, to_write=True))
 
-                i2 = Variable('i2', dtype=np.uint16, initial=0, to_write=True)
-                ts2 = Variable('ts2', dtype=np.uint16, initial=0, to_write=True)
-                dt2 = Variable('dt2', dtype=np.uint16, initial=0, to_write=True)
-
-                i3 = Variable('i3', dtype=np.uint16, initial=0, to_write=True)
-                ts3 = Variable('ts3', dtype=np.uint16, initial=0, to_write=True)
-                dt3 = Variable('dt3', dtype=np.uint16, initial=0, to_write=True)
-
-                i4 = Variable('i4', dtype=np.uint16, initial=0, to_write=True)
-                ts4 = Variable('ts4', dtype=np.uint16, initial=0, to_write=True)
-                dt4 = Variable('dt4', dtype=np.uint16, initial=0, to_write=True)
-
-                i5 = Variable('i5', dtype=np.uint16, initial=0, to_write=True)
-                ts5 = Variable('ts5', dtype=np.uint16, initial=0, to_write=True)
-                dt5 = Variable('dt5', dtype=np.uint16, initial=0, to_write=True)
-
-                i6 = Variable('i6', dtype=np.uint16, initial=0, to_write=True)
-                ts6 = Variable('ts6', dtype=np.uint16, initial=0, to_write=True)
-                dt6 = Variable('dt6', dtype=np.uint16, initial=0, to_write=True)
-
-                i7 = Variable('i7', dtype=np.uint16, initial=0, to_write=True)
-                ts7 = Variable('ts7', dtype=np.uint16, initial=0, to_write=True)
-                dt7 = Variable('dt7', dtype=np.uint16, initial=0, to_write=True)
-
-                i8 = Variable('i8', dtype=np.uint16, initial=0, to_write=True)
-                ts8 = Variable('ts8', dtype=np.uint16, initial=0, to_write=True)
-                dt8 = Variable('dt8', dtype=np.uint16, initial=0, to_write=True)
-
-                i9 = Variable('i9', dtype=np.uint16, initial=0, to_write=True)
-                ts9 = Variable('ts9', dtype=np.uint16, initial=0, to_write=True)
-                dt9 = Variable('dt9', dtype=np.uint16, initial=0, to_write=True)
-
-                i10 = Variable('i10', dtype=np.uint16, initial=0, to_write=True)
-                ts10 = Variable('ts10', dtype=np.uint16, initial=0, to_write=True)
-                dt10 = Variable('dt10', dtype=np.uint16, initial=0, to_write=True)
-
-                i11 = Variable('i11', dtype=np.uint16, initial=0, to_write=True)
-                ts11 = Variable('ts11', dtype=np.uint16, initial=0, to_write=True)
-                dt11 = Variable('dt11', dtype=np.uint16, initial=0, to_write=True)
-
-                i12 = Variable('i12', dtype=np.uint16, initial=0, to_write=True)
-                ts12 = Variable('ts12', dtype=np.uint16, initial=0, to_write=True)
-                dt12 = Variable('dt12', dtype=np.uint16, initial=0, to_write=True)
-
-                i13 = Variable('i13', dtype=np.uint16, initial=0, to_write=True)
-                ts13 = Variable('ts13', dtype=np.uint16, initial=0, to_write=True)
-                dt13 = Variable('dt13', dtype=np.uint16, initial=0, to_write=True)
-
-                i14 = Variable('i14', dtype=np.uint16, initial=0, to_write=True)
-                ts14 = Variable('ts14', dtype=np.uint16, initial=0, to_write=True)
-                dt14 = Variable('dt14', dtype=np.uint16, initial=0, to_write=True)
-
-                i15 = Variable('i15', dtype=np.uint16, initial=0, to_write=True)
-                ts15 = Variable('ts15', dtype=np.uint16, initial=0, to_write=True)
-                dt15 = Variable('dt15', dtype=np.uint16, initial=0, to_write=True)
-
-                i16 = Variable('i16', dtype=np.uint16, initial=0, to_write=True)
-                ts16 = Variable('ts16', dtype=np.uint16, initial=0, to_write=True)
-                dt16 = Variable('dt16', dtype=np.uint16, initial=0, to_write=True)
-
-                i17 = Variable('i17', dtype=np.uint16, initial=0, to_write=True)
-                ts17 = Variable('ts17', dtype=np.uint16, initial=0, to_write=True)
-                dt17 = Variable('dt17', dtype=np.uint16, initial=0, to_write=True)
-
-                i18 = Variable('i18', dtype=np.uint16, initial=0, to_write=True)
-                ts18 = Variable('ts18', dtype=np.uint16, initial=0, to_write=True)
-                dt18 = Variable('dt18', dtype=np.uint16, initial=0, to_write=True)
-
-                i19 = Variable('i19', dtype=np.uint16, initial=0, to_write=True)
-                ts19 = Variable('ts19', dtype=np.uint16, initial=0, to_write=True)
-                dt19 = Variable('dt19', dtype=np.uint16, initial=0, to_write=True)
-
+            if test:
+                setattr(larva, 'Ns' + str(e_val), Variable('Ns' + str(e_val), dtype=np.float32, initial=0., to_write=True))
 
         return larva
 
@@ -1021,7 +928,7 @@ class Experiment():
                 particle.ot += 1
 
                 # 2 Assess reef status
-                particle.idx = fieldset.reef_idx_c[particle]
+                particle.idx = fieldset.idx[particle]
 
                 # TESTING ONLY ############################################
                 # Calculate current mortality rate
@@ -1029,7 +936,7 @@ class Experiment():
                 particle.L10 = particle.L1
                 particle.L20 = particle.L2
 
-                particle.rf = fieldset.reef_frac_c[particle]
+                particle.rf = fieldset.rf[particle]
                 ###########################################################
 
                 save_event = False
@@ -1111,8 +1018,8 @@ class Experiment():
 
                 if save_event:
                     # Save current values
-                    # Unfortunately, due to the limited functions allowed in parcels, this
-                    # required an horrendous if-else chain
+                    # Unfortunately since setattr doesn't work in a kernel, this
+                    # requires a horrendous elif chain.
 
                     if particle.e_num == 0:
                         particle.i0 = particle.current_reef_idx
@@ -1294,7 +1201,7 @@ class Experiment():
                 particle.ot += 1
 
                 # 2 Assess reef status
-                particle.idx = fieldset.reef_idx_c[particle]
+                particle.idx = fieldset.idx[particle]
 
                 save_event = False
                 new_event = False
@@ -1421,6 +1328,46 @@ class Experiment():
                         particle.i19 = particle.current_reef_idx
                         particle.ts19 = particle.current_reef_ts0
                         particle.dt19 = particle.current_reef_ts
+                    elif particle.e_num == 20:
+                        particle.i20 = particle.current_reef_idx
+                        particle.ts20 = particle.current_reef_ts0
+                        particle.dt20 = particle.current_reef_ts
+                    elif particle.e_num == 21:
+                        particle.i21 = particle.current_reef_idx
+                        particle.ts21 = particle.current_reef_ts0
+                        particle.dt21 = particle.current_reef_ts
+                    elif particle.e_num == 22:
+                        particle.i22 = particle.current_reef_idx
+                        particle.ts22 = particle.current_reef_ts0
+                        particle.dt22 = particle.current_reef_ts
+                    elif particle.e_num == 23:
+                        particle.i23 = particle.current_reef_idx
+                        particle.ts23 = particle.current_reef_ts0
+                        particle.dt23 = particle.current_reef_ts
+                    elif particle.e_num == 24:
+                        particle.i24 = particle.current_reef_idx
+                        particle.ts24 = particle.current_reef_ts0
+                        particle.dt24 = particle.current_reef_ts
+                    elif particle.e_num == 25:
+                        particle.i25 = particle.current_reef_idx
+                        particle.ts25 = particle.current_reef_ts0
+                        particle.dt25 = particle.current_reef_ts
+                    elif particle.e_num == 26:
+                        particle.i26 = particle.current_reef_idx
+                        particle.ts26 = particle.current_reef_ts0
+                        particle.dt26 = particle.current_reef_ts
+                    elif particle.e_num == 27:
+                        particle.i27 = particle.current_reef_idx
+                        particle.ts27 = particle.current_reef_ts0
+                        particle.dt27 = particle.current_reef_ts
+                    elif particle.e_num == 28:
+                        particle.i28 = particle.current_reef_idx
+                        particle.ts28 = particle.current_reef_ts0
+                        particle.dt28 = particle.current_reef_ts
+                    elif particle.e_num == 29:
+                        particle.i29 = particle.current_reef_idx
+                        particle.ts29 = particle.current_reef_ts0
+                        particle.dt29 = particle.current_reef_ts
 
                         particle.delete() # Delete particle, since no more reefs can be saved
 
@@ -1428,7 +1375,6 @@ class Experiment():
                     particle.current_reef_idx = 0
                     particle.current_reef_ts0 = 0
                     particle.current_reef_ts = 0
-                    # particle.Ns = 0
 
                     # Add to event number counter
                     particle.e_num += 1
@@ -1443,7 +1389,6 @@ class Experiment():
 
                     # Current reef group
                     particle.current_reef_idx = particle.idx
-
 
                 # Finally, check if particle needs to be deleted
                 if particle.ot >= fieldset.max_age:
@@ -1474,7 +1419,7 @@ class Experiment():
 
         if self.cfg['test']:
             if self.cfg['test_type'] == 'traj':
-                self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], outputdt=timedelta(hours=2))
+                self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], outputdt=timedelta(hours=0.25))
             else:
                 self.trajectory_file = self.pset.ParticleFile(name=self.fh['traj'], write_ondelete=True)
         else:
@@ -1503,6 +1448,7 @@ class Experiment():
             nc.larvae_per_cell = self.cfg['pn2']
             nc.total_larvae_released = len(self.particles['lon'])
             nc.interp_method = self.cfg['interp_method']
+            nc.e_num = self.cfg['e_num']
 
             if self.cfg['test']:
                 nc.test_mode = 'True'
@@ -1595,17 +1541,17 @@ class Experiment():
 
             with Dataset(self.fh['traj'], mode='r') as nc:
                 # Find the number of events
-                e_num = 0
-                searching = True
+                # e_num = 0
+                # searching = True
 
-                while searching:
-                    try:
-                        nc.variables['i' + str(e_num)]
-                        e_num += 1
-                    except:
-                        searching = False
+                # while searching:
+                #     try:
+                #         nc.variables['i' + str(e_num)]
+                #         e_num += 1
+                #     except:
+                #         searching = False
 
-                self.cfg['max_events'] = e_num
+                self.cfg['max_events'] = nc.e_num
 
                 e_num = nc.variables['e_num'][:] # Number of events stored per trajectory
                 n_traj = np.shape(e_num)[0] # Number of trajectories in file
@@ -1791,6 +1737,73 @@ class Experiment():
 
                 # Plot the velocity field
                 ax.quiver(disp_lon_rho, disp_lat_rho, disp_u_rho, disp_v_rho)
+
+                # Load the trajectories
+                with Dataset(self.fh['traj'], mode='r') as nc:
+                    plat = nc.variables['lat'][:]
+                    plon = nc.variables['lon'][:]
+
+                for particle in range(np.shape(plat)[0]):
+                    ax.plot(plon[particle, :], plat[particle, :], 'w-', linewidth=0.5)
+
+                plt.savefig(self.dirs['fig'] + 'trajectory_test.png', dpi=300)
+
+            elif self.cfg['preset'] == 'WINDS':
+                jmin_psi = np.searchsorted(self.axes['lon_psi'], self.cfg['view_lon0']) - 1
+                jmin_psi = 0 if jmin_psi < 0 else jmin_psi
+                jmin_rho = jmin_psi
+                jmax_psi = np.searchsorted(self.axes['lon_psi'], self.cfg['view_lon1']) + 1
+                jmax_rho = jmax_psi + 1
+
+                imin_psi = np.searchsorted(self.axes['lat_psi'], self.cfg['view_lat0']) - 1
+                imin_psi = 0 if imin_psi < 0 else imin_psi
+                imin_rho = imin_psi
+                imax_psi = np.searchsorted(self.axes['lat_psi'], self.cfg['view_lat1']) + 1
+                imax_rho = imax_psi + 1
+
+                disp_lon_rho = self.axes['lon_rho'][jmin_rho:jmax_rho]
+                disp_lat_rho = self.axes['lat_rho'][imin_rho:imax_rho]
+                disp_lon_psi = self.axes['lon_psi'][jmin_psi:jmax_psi]
+                disp_lat_psi = self.axes['lat_psi'][imin_psi:imax_psi]
+
+                disp_lsm_rho = self.fields['lsm'][imin_rho:imax_rho, jmin_rho:jmax_rho]
+
+                with Dataset(self.fh['model'][0], mode='r') as nc:
+                    # Load the time slice corresponding to release (start)
+                    disp_u = nc.variables[self.cfg['u_varname']][0, imin_rho:imax_rho, jmin_psi:jmax_psi]
+                    disp_v = nc.variables[self.cfg['v_varname']][0, imin_psi:imax_psi, jmin_rho:jmax_rho]
+
+                    disp_u_lon = nc.variables[self.cfg['lon_u_dimname']][imin_rho:imax_rho, jmin_psi:jmax_psi]
+                    disp_u_lat = nc.variables[self.cfg['lat_u_dimname']][imin_rho:imax_rho, jmin_psi:jmax_psi]
+                    disp_v_lon = nc.variables[self.cfg['lon_v_dimname']][imin_psi:imax_psi, jmin_rho:jmax_rho]
+                    disp_v_lat = nc.variables[self.cfg['lat_v_dimname']][imin_psi:imax_psi, jmin_rho:jmax_rho]
+
+                # Plot
+                f, ax = plt.subplots(1, 1, figsize=(10, 10))
+                ax.set_xlim(self.cfg['view_lon0'], self.cfg['view_lon1'])
+                ax.set_ylim(self.cfg['view_lat0'], self.cfg['view_lat1'])
+
+                # Plot the psi grid
+                for i in range(len(disp_lat_psi)):
+                    ax.plot([self.cfg['view_lon0'], self.cfg['view_lon1']],
+                            [disp_lat_psi[i], disp_lat_psi[i]],
+                            'k--', linewidth=0.5)
+
+                for j in range(len(disp_lon_psi)):
+                    ax.plot([disp_lon_psi[j], disp_lon_psi[j]],
+                            [self.cfg['view_lat0'], self.cfg['view_lat1']],
+                            'k--', linewidth=0.5)
+
+                # Plot the rho mask
+                disp_lon_rho_, disp_lat_rho_ = np.meshgrid(disp_lon_rho, disp_lat_rho)
+                disp_lon_psi_, disp_lat_psi_ = np.meshgrid(disp_lon_psi, disp_lat_psi)
+
+                ax.pcolormesh(disp_lon_psi, disp_lat_psi, disp_lsm_rho[1:-1, 1:-1], cmap=cmr.copper,
+                              vmin=-0.5, vmax=1.5)
+
+                # Plot the velocity field
+                ax.quiver(disp_u_lon, disp_u_lat, disp_u, np.zeros_like(disp_u), scale=10)
+                ax.quiver(disp_v_lon, disp_v_lat, np.zeros_like(disp_v), disp_v, scale=10)
 
                 # Load the trajectories
                 with Dataset(self.fh['traj'], mode='r') as nc:
