@@ -49,7 +49,7 @@ class Experiment():
     """
 
 
-    def __init__(self):
+    def __init__(self, *args):
         # Set up a status dictionary so we know the completion status of the
         # experiment configuration
 
@@ -59,6 +59,11 @@ class Experiment():
                        'run': False,
                        'dict': False,
                        'matrix': False}
+
+        try:
+            self.name = args[0]
+        except:
+            self.name = 'my_experiment'
 
 
     def config(self, dir_dict, **kwargs):
@@ -146,7 +151,7 @@ class Experiment():
                  'plot': False,
                  'plot_type': 'grp',}
 
-        CMEMS = {'preset': 'WINDS',
+        WINDS = {'preset': 'WINDS',
                  'grid_filename': 'coral_grid.nc',
                  'model_filenames': 'WINDS_SFC*.nc',
 
@@ -1463,11 +1468,7 @@ class Experiment():
         if not self.status['particleset']:
             raise Exception('Please run particleset first.')
 
-        if 'fh' in kwargs.keys():
-            self.fh['traj'] = self.dirs['traj'] + kwargs['fh']
-        else:
-            self.fh['traj'] = self.dirs['traj'] + 'example_output.nc'
-            print('No output file handle provided - using defaults.' )
+        self.fh['traj'] = self.dirs['traj'] + self.name + '.nc'
 
         print('Exporting output to ' + str(self.fh['traj']))
 
@@ -1582,13 +1583,13 @@ class Experiment():
 
         if self.cfg['test_type'] == 'kernel':
             # Convert all units to days to avoid overflow in calculations
-            self.cfg['a'] = np.array(self.cfg['test_params']['a']*86400, dtype=np.float32)
-            self.cfg['b'] = np.array(self.cfg['test_params']['b']*86400, dtype=np.float32)
-            self.cfg['tc'] = np.array(self.cfg['test_params']['tc']/86400, dtype=np.float32)
-            self.cfg['μs'] = np.array(self.cfg['test_params']['μs']*86400, dtype=np.float32)
-            self.cfg['σ'] = np.array(self.cfg['test_params']['σ'], dtype=np.float32)
-            self.cfg['λ'] = np.array(self.cfg['test_params']['λ']*86400, dtype=np.float32)
-            self.cfg['ν'] = np.array(self.cfg['test_params']['ν'], dtype=np.float32)
+            self.cfg['a'] = np.array(self.cfg['test_params']['a']*86400, dtype=np.float64)
+            self.cfg['b'] = np.array(self.cfg['test_params']['b']*86400, dtype=np.float64)
+            self.cfg['tc'] = np.array(self.cfg['test_params']['tc']/86400, dtype=np.float64)
+            self.cfg['μs'] = np.array(self.cfg['test_params']['μs']*86400, dtype=np.float64)
+            self.cfg['σ'] = np.array(self.cfg['test_params']['σ'], dtype=np.float64)
+            self.cfg['λ'] = np.array(self.cfg['test_params']['λ']*86400, dtype=np.float64)
+            self.cfg['ν'] = np.array(self.cfg['test_params']['ν'], dtype=np.float64)
 
             self.cfg['dt']  = self.cfg['dt'].total_seconds()/86400
 
@@ -1651,15 +1652,19 @@ class Experiment():
                 t0 = t0_array[:, i]
                 dt = dt_array[:, i]
 
-                ns_array[:, i], int0 = self.integrate_event(psi0, int0, fr,
-                                                            self.cfg['a'],
-                                                            self.cfg['b'],
-                                                            self.cfg['tc'],
-                                                            self.cfg['μs'],
-                                                            self.cfg['σ'],
-                                                            self.cfg['λ'],
-                                                            self.cfg['ν'],
-                                                            t0, t1_prev, dt)
+                ns_array[:, i], int0 = self.integrate_event(psi0.astype(np.float64),
+                                                            int0.astype(np.float64),
+                                                            fr.astype(np.float64),
+                                                            self.cfg['a'].astype(np.float64),
+                                                            self.cfg['b'].astype(np.float64),
+                                                            self.cfg['tc'].astype(np.float64),
+                                                            self.cfg['μs'].astype(np.float64),
+                                                            self.cfg['σ'].astype(np.float64),
+                                                            self.cfg['λ'].astype(np.float64),
+                                                            self.cfg['ν'].astype(np.float64),
+                                                            t0.astype(np.float64),
+                                                            t1_prev.astype(np.float64),
+                                                            dt.astype(np.float64))
 
                 t1_prev = t0 + dt
                 psi0 = psi0 + fr*dt
@@ -1843,13 +1848,13 @@ class Experiment():
             self.cfg['subset'] = False
 
         # Define translation function
-        def translate(a, d):
-            # Adapted from Maxim's suggestion:
+        def translate(c1, c2):
+            # Adapted from Maxim's excellent suggestion:
             # https://stackoverflow.com/questions/16992713/translate-every-element-in-numpy-array-according-to-key
-            src, values = np.array(list(d.keys()), dtype=np.uint16), np.array(list(d.values()), dtype=np.float32)
-            d_array = np.zeros((src.max()+1), dtype=np.float32)
-            d_array[src] = values
-            return d_array[a]
+            src, values = np.array(list(c2.keys()), dtype=np.uint16), np.array(list(c2.values()), dtype=np.float32)
+            c2_array = np.zeros((src.max()+1), dtype=np.float32)
+            c2_array[src] = values
+            return c2_array[c1]
 
         if rank == 0:
             # Get files
