@@ -423,6 +423,8 @@ class Experiment():
                    min_competency = Minimum competency period (timedelta)
                    dt = Model time-step (timedelta)
                    run_time = Model run-time (timedelta)
+                   partitions = number of partitions to split pset into
+                   part = which partition to choose (1, 2...)
 
                    test = Whether to activate testing kernels (bool)
         """
@@ -512,6 +514,15 @@ class Experiment():
                 self.cfg['test'] = False
         else:
             self.cfg['test'] = False
+
+        if 'partitions' in kwargs.keys():
+            if 'part' in kwargs.keys():
+                self.cfg['partitions'] = kwargs['partitions']
+                self.cfg['part'] = kwargs['part']
+            else:
+                raise Exception('Please specify which part of the partitionset to release.')
+        else:
+            self.cfg['partitions'] = False
 
         # Build a mask of valid initial position cells
         reef_mask = (self.fields['rc'] > 0)
@@ -647,6 +658,9 @@ class Experiment():
                                                'lat': particles['lat'],
                                                't0': self.cfg['t0'],
                                                'idx': 1})
+
+        if self.cfg['partitions']:
+            self.particles = np.array_split(self.particles, self.cfg['partitions'])[self.cfg['part']+1]
 
         # Generate the ParticleSet
         self.pset = ParticleSet.from_list(fieldset=self.fieldset,
@@ -1887,11 +1901,7 @@ class Experiment():
 
     def run(self, **kwargs):
         """
-        Generate the ParticleSet object for OceanParcels
-
-        Parameters
-        ----------
-        **kwargs : fh = file name for exported netcdf with trajectories
+        Run the configured OceanParcels simulation
 
         """
 
@@ -1913,6 +1923,20 @@ class Experiment():
         def deleteParticle(particle, fieldset, time):
             #  Recovery kernel to delete a particle if an error occurs
             particle.delete()
+
+        # Print some basic statistics
+        print('')
+        print('Starting simulation:')
+        print('Name: ' + self.name)
+        print('Number of release cells: ' + str(self.cfg['nsite']) + '/' + str(self.cfg['nsite_nofilter']))
+        print('Number of particles released: ' + str(len(self.particles['lon'])))
+        print('Release time: ' + str(self.particles['t0'].iloc[0]))
+        print('Simulation length: ' + str(self.cfg['run_time']))
+
+        if self.cfg['partitions']:
+            print('Partition: ' + str(self.cfg['part']) + '/' + str(self.cfg['partitions']))
+
+        print('')
 
         # Run the simulation
         self.pset.execute(self.kernel,
