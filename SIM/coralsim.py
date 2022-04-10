@@ -2906,6 +2906,7 @@ class Experiment():
             parameters*: Postproc parameters (in dict)
             filters: Dict of filters for eez/grp
             subset: Integer factor to subset particle IDs by
+            e_num_ceil: Maximum number of events to consider
 
 
         Important note: all units are converted to DAYS within this function
@@ -2946,6 +2947,11 @@ class Experiment():
         else:
             self.cfg['subset'] = False
 
+        if 'e_num_ceil' in kwargs.keys():
+            self.cfg['e_num_ceil'] = int(kwargs['e_num_ceil'])
+        else:
+            self.cfg['e_num_ceil'] = False
+
         # Define translation function
         def translate(c1, c2):
             # Adapted from Maxim's excellent suggestion:
@@ -2961,7 +2967,7 @@ class Experiment():
 
             # Open the first file to find the number of events stored and remaining parameters
             with Dataset(fh_list[0], mode='r') as nc:
-                e_num = nc.e_num
+                e_num_full = nc.e_num
 
                 self.cfg['dt'] = int(nc.timestep_seconds)/86400
                 self.cfg['lpc'] = int(nc.larvae_per_cell)
@@ -2971,6 +2977,10 @@ class Experiment():
                         raise Exception('Subset too high - aliasing may be an issue.')
                     else:
                         self.cfg['lpc'] /= self.cfg['subset']
+
+                if self.cfg['e_num_ceil']:
+                    assert self.cfg['e_num_ceil'] <= e_num_full
+                    e_num_full = self.cfg['e_num_ceil']
 
                 if self.cfg['tc']*86400 < int(nc.min_competency_seconds):
                     raise Exception('Minimum competency chosen is smaller than the value used at run-time (' + str(int(nc.min_competency_seconds)) +'s).')
@@ -3030,7 +3040,7 @@ class Experiment():
             grp_list, grp_bnds = None, None
             p_matrix, f_matrix, t_matrix = None, None, None
             p_matrix_chunk, f_matrix_chunk, t_matrix_chunk = None, None, None
-            root_y, e_num, self.cfg['dt'], self.cfg['lpc'] = None, None, None, None
+            root_y, e_num_full, self.cfg['dt'], self.cfg['lpc'] = None, None, None, None
             pbar_step = None
 
         comm.Barrier()
@@ -3043,7 +3053,7 @@ class Experiment():
         f_matrix_chunk = comm.bcast(f_matrix_chunk, root=0)
         t_matrix_chunk = comm.bcast(t_matrix_chunk, root=0)
         root_y = comm.bcast(root_y, root=0)
-        self.cfg['max_events'] = comm.bcast(e_num, root=0)
+        self.cfg['max_events'] = comm.bcast(e_num_full, root=0)
         self.cfg['dt'] = comm.bcast(self.cfg['dt'], root=0)
         self.cfg['lpc'] = comm.bcast(self.cfg['lpc'], root=0)
 
@@ -3250,146 +3260,10 @@ class Experiment():
         # A last barrier is needed to keep matrices in memory for rank-0
         comm.Barrier()
 
-        return [p_matrix, f_matrix, t_matrix]
+        if rank == 0:
+            return [p_matrix, f_matrix, t_matrix, matrix_t_axis]
 
         self.status['matrix'] = True
-
-    # def export_matrix(self, fh, **kwargs):
-    #     """
-    #     Parameters (* are required)
-    #     ----------
-    #     kwargs :
-    #         fh*: Output file handle
-    #         scheme*: Which region to generate a matrix for
-
-    #     """
-
-    #     if not self.status['dataframe']:
-    #         raise Exception('Please run to_dataframe first')
-
-    #     if 'scheme' not in kwargs:
-    #         raise KeyError('Please specify a plotting scheme')
-    #     elif kwargs['scheme'] not in ['seychelles']:
-    #         raise KeyError('Scheme not understood')
-
-    #     if kwargs['scheme'] == 'seychelles':
-    #         # grp_list = self.data['source_group'].unique()
-    #         # Reorder group list:
-    #         # Farquhar Grp (8) | Aldabra Grp (7) | Alphonse Grp (2) | Amirantes (9) | Southern Coral Grp (2) | Inner Islands (10)
-    #         grp_list = np.array([1, 3, 4, 5, 8, 11, 14, 15, 2, 6, 7, 9, 10, 12, 13, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 16, 22, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38])
-    #         n_grp = len(grp_list)
-
-    #         probability_matrix = self.matrix[0]
-    #         flux_matrix = self.matrix[1]
-
-    #         # for i, source_grp in enumerate(grp_list):
-    #         #     for j, sink_grp in enumerate(grp_list):
-    #         #         # Probability of a larva going from source -> sink:
-    #         #         # Sum of settling_larval_frac for source_group == source and
-    #         #         # sink_group == sink
-
-    #         #         # Flux of larvae going from source -> sink:
-    #         #         # Sum of settling larvae for source_group == source and
-    #         #         # sink_group == sink
-
-    #         #         subset = self.data.loc[(self.data['source_group'] == source_grp) &
-    #         #                                (self.data['sink_group'] == sink_grp)].sum()
-
-    #         #         probability_matrix[i, j] = subset['settling_larval_frac']/(12*kwargs['n_years'])
-    #         #         flux_matrix[i, j] = subset['settling_larval_num']/(kwargs['n_years']) # Convert to flux per year
-
-    #         f, ax = plt.subplots(1, 1, figsize=(13, 10), constrained_layout=True)
-    #         font = {'family': 'normal',
-    #                 'weight': 'normal',
-    #                 'size': 16,}
-    #         matplotlib.rc('font', **font)
-
-    #         # Set up plot
-    #         axis = np.linspace(0, n_grp, num=n_grp+1)
-    #         i_coord, j_coord = np.meshgrid(axis, axis)
-    #         pmatrix = ax.pcolormesh(i_coord, j_coord, probability_matrix, cmap=cmr.gem,
-    #                                 norm=colors.LogNorm(vmin=1e-10, vmax=1e-2), shading='auto')
-
-    #         # Adjust plot
-    #         cax1 = f.add_axes([ax.get_position().x1+0.0,ax.get_position().y0-0.115,0.020,ax.get_position().height+0.231])
-
-    #         cb1 = plt.colorbar(pmatrix, cax=cax1, pad=0.1)
-    #         cb1.set_label('Probabiity of connection', size=16)
-
-    #         ax.set_aspect('equal', adjustable=None)
-    #         ax.margins(x=-0.01, y=-0.01)
-    #         ax.xaxis.set_ticks(np.arange(39))
-    #         ax.xaxis.set_ticklabels([])
-    #         ax.yaxis.set_ticks(np.arange(39))
-    #         ax.yaxis.set_ticklabels([])
-    #         ax.set_xlim([0, 38])
-    #         ax.set_ylim([0, 38])
-
-    #         ax.tick_params(color='w', labelcolor='w')
-    #         for spine in ax.spines.values():
-    #             spine.set_edgecolor('w')
-
-    #         # Add dividers
-    #         for pos in [8, 15, 17, 26, 28, 38]:
-    #             ax.plot(np.array([pos, pos]), np.array([0, 38]), '-', color='w', linewidth=2)
-    #             ax.plot(np.array([0, 38]), np.array([pos, pos]), '-', color='w', linewidth=2)
-
-    #         for spine in cax1.spines.values():
-    #             spine.set_edgecolor('w')
-
-    #         plt.savefig(fh, dpi=300, bbox_inches='tight')
-
-
-    #         # # Add labels
-    #         # for pos, label in zip([4, 11.5, 16, 21.5, 27, 33],
-    #         #                       ['Farquhar Grp', 'Aldabra Grp', 'Alphonse Grp',
-    #         #                        'Amirantes', 'Southern Coral Grp', 'Inner Islands']:
-    #         #     ax.text()
-
-
-    #         # plt.xticks([], "", ax=ax)
-    #         # ax.set_ticks(np.arange(39))
-    #         # ax.set_xlabel("")
-
-
-
-
-
-
-# f, ax = plt.subplots(1, 1, figsize=(24, 10), constrained_layout=True,
-#                      subplot_kw={'projection': ccrs.PlateCarree()})
-
-# data_crs = ccrs.PlateCarree()
-# coral = ax.pcolormesh(lon_psi_w, lat_psi_w, np.ma.masked_where(coral_grid_w == 0, coral_grid_w)[1:-1, 1:-1],
-#                        norm=colors.LogNorm(vmin=1e2, vmax=1e8), cmap=cmr.flamingo_r, transform=data_crs)
-# ax.pcolormesh(lon_psi_w, lat_psi_w, np.ma.masked_where(lsm_rho_w == 0, 1-lsm_rho_w)[1:-1, 1:-1],
-#               vmin=-2, vmax=1, cmap=cmr.neutral, transform=data_crs)
-
-# gl = ax.gridlines(crs=data_crs, draw_labels=True, linewidth=1, color='gray', linestyle='-')
-# gl.xlocator = mticker.FixedLocator(np.arange(35, 95, 5))
-# gl.ylocator = mticker.FixedLocator(np.arange(-25, 5, 5))
-# gl.ylabels_right = False
-# gl.xlabels_top = False
-
-# ax.set_xlim([34.62, 77.5])
-# ax.set_ylim([-23.5, 0])
-# ax.spines['geo'].set_linewidth(1)
-# ax.set_ylabel('Latitude')
-# ax.set_xlabel('Longitude')
-# ax.set_title('Coral cells on WINDS grid (postproc)')
-
-# cax1 = f.add_axes([ax.get_position().x1+0.07,ax.get_position().y0-0.10,0.015,ax.get_position().height+0.196])
-
-# cb1 = plt.colorbar(oceanc, cax=cax1, pad=0.1)
-# cb1.set_label('Coral surface area in cell (m2)', size=12)
-
-# ax.set_aspect('equal', adjustable=None)
-# ax.margins(x=-0.01, y=-0.01)
-
-# plt.savefig(fh['fig'] + '_WINDS_postproc.png', dpi=300)
-
-
-
 
 
 
