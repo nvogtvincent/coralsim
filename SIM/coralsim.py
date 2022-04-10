@@ -2913,12 +2913,6 @@ class Experiment():
 
         """
 
-        from mpi4py import MPI
-
-        comm = MPI.COMM_WORLD
-        rank = comm.Get_rank()
-        size = comm.Get_size()
-
         if not self.status['dict']:
             self.generate_dict()
 
@@ -2961,307 +2955,224 @@ class Experiment():
             c2_array[src] = values
             return c2_array[c1]
 
-        if rank == 0:
-            # Get files
-            fh_list = sorted(glob(self.dirs['traj'] + kwargs['fh']))
+        # Get files
+        fh_list = sorted(glob(self.dirs['traj'] + kwargs['fh']))
 
-            # Open the first file to find the number of events stored and remaining parameters
-            with Dataset(fh_list[0], mode='r') as nc:
-                e_num_full = nc.e_num
+        # Open the first file to find the number of events stored and remaining parameters
+        with Dataset(fh_list[0], mode='r') as nc:
+            self.cfg['max_events'] = nc.e_num
 
-                self.cfg['dt'] = int(nc.timestep_seconds)/86400
-                self.cfg['lpc'] = int(nc.larvae_per_cell)
+            self.cfg['dt'] = int(nc.timestep_seconds)/86400
+            self.cfg['lpc'] = int(nc.larvae_per_cell)
 
+            if self.cfg['subset']:
+                if self.cfg['lpc']/self.cfg['subset'] < 16:
+                    raise Exception('Subset too high - aliasing may be an issue.')
+                else:
+                    self.cfg['lpc'] /= self.cfg['subset']
+
+            if self.cfg['tc']*86400 < int(nc.min_competency_seconds):
+                raise Exception('Minimum competency chosen is smaller than the value used at run-time (' + str(int(nc.min_competency_seconds)) +'s).')
+
+        # Get the full time range
+        t0_list = []
+
+        for fh in fh_list:
+            y0 = int(fh.split('/')[-1].split('_')[-5])
+            t0_list.append(y0)
+
+        t0_list = np.array(t0_list)
+        n_months = (t0_list.max()-t0_list.min()+1)*12
+        matrix_t_axis = np.arange(t0_list.min(), t0_list.max()+1, 1/12)
+        root_y = t0_list.min()
+
+        if 'partitions' not in self.cfg:
+            self.cfg['partitions'] = 1
+
+        if self.cfg['rpm']*self.cfg['partitions']*n_months != len(fh_list):
+            print('Warning: there is an unexpected number of files!')
+            print(str(n_months) + ' months')
+            print(str(self.cfg['rpm']) + ' releases per month')
+            print(str(self.cfg['partitions']) + ' partitions')
+            print(str(self.cfg['partitions']*self.cfg['rpm']*n_months) + ' files expected')
+            print(str(len(fh_list)) + ' files found')
+
+        # Get a list of group IDs
+        reef_mask = (self.fields['rc'] > 0)
+
+        for filter_name in kwargs['filters'].keys():
+            reef_mask *= np.isin(self.fields[filter_name], kwargs['filters'][filter_name])
+
+        grp_list = np.unique(np.ma.masked_where(reef_mask == 0, self.fields['grp'])).compressed()
+        grp_bnds = np.append(grp_list, grp_list[-1]+1)-0.5
+        grp_num = len(grp_list)
+
+        # Set up matrices
+        p_matrix = np.zeros((grp_num, grp_num, n_months), dtype=np.float32) # For probability (ij)
+        f_matrix = np.zeros_like(p_matrix, dtype=np.float32) # For flux (ij)
+        t_matrix = np.zeros_like(p_matrix, dtype=np.float32) # For transit time (ij)
+
+        for fhi, fh in enumerate(fh_list):
+            with Dataset(fh, mode='r') as nc:
+                pid = nc.variables['trajectory'][:] # Trajectory ID
+
+                # Filter IDs
                 if self.cfg['subset']:
-                    if self.cfg['lpc']/self.cfg['subset'] < 16:
-                        raise Exception('Subset too high - aliasing may be an issue.')
-                    else:
-                        self.cfg['lpc'] /= self.cfg['subset']
+                    sub_id = np.where(pid%self.cfg['subset'] == 0)[0]
+                else:
+                    sub_id = np.arange(len(pid))
 
-                if self.cfg['e_num_ceil']:
-                    assert self.cfg['e_num_ceil'] <= e_num_full
-                    e_num_full = self.cfg['e_num_ceil']
+                e_num = nc.variables['e_num'][:][sub_id] # Number of events stored per trajectory
+                n_traj = np.shape(e_num)[0] # Number of trajectories in file/subset
 
-                if self.cfg['tc']*86400 < int(nc.min_competency_seconds):
-                    raise Exception('Minimum competency chosen is smaller than the value used at run-time (' + str(int(nc.min_competency_seconds)) +'s).')
+                if not n_traj:
+                    # Skip if there are no trajectories stored in file
+                    continue
 
-            # Get the full time range
-            t0_list = []
-
-            for fh in fh_list:
+                # Extract origin date from filename
                 y0 = int(fh.split('/')[-1].split('_')[-5])
-                t0_list.append(y0)
+                m0 = int(fh.split('/')[-1].split('_')[-4])
+                d0 = int(fh.split('/')[-1].split('_')[-3].split('.')[0])
+                assert y0 < 2025 and y0 > 1990
+                assert m0 < 13 and m0 > 0
+                assert d0 < 32 and d0 > 0
+                t0 = datetime(year=y0, month=m0, day=d0, hour=0)
 
-            t0_list = np.array(t0_list)
-            n_months = (t0_list.max()-t0_list.min()+1)*12
-            matrix_t_axis = np.arange(t0_list.min(), t0_list.max()+1, 1/12)
-            root_y = t0_list.min()
-
-            if 'partitions' not in self.cfg:
-                self.cfg['partitions'] = 1
-
-            if self.cfg['rpm']*self.cfg['partitions']*n_months != len(fh_list):
-                print('Warning: there is an unexpected number of files!')
-                print(str(n_months) + ' months')
-                print(str(self.cfg['rpm']) + ' releases per month')
-                print(str(self.cfg['partitions']) + ' partitions')
-                print(str(self.cfg['partitions']*self.cfg['rpm']*n_months) + ' files expected')
-                print(str(len(fh_list)) + ' files found')
-
-            # In this MPI implementation, we split files across processes (assuming
-            # that each file is small enough for all to fit into memory)
-            fh_list_chunk = np.array_split(fh_list, size)
-            max_files_per_chunk = np.array([len(fl) for fl in fh_list_chunk]).max()
-
-            # Get a list of group IDs
-            reef_mask = (self.fields['rc'] > 0)
-
-            for filter_name in kwargs['filters'].keys():
-                reef_mask *= np.isin(self.fields[filter_name], kwargs['filters'][filter_name])
-
-            grp_list = np.unique(np.ma.masked_where(reef_mask == 0, self.fields['grp'])).compressed()
-            grp_bnds = np.append(grp_list, grp_list[-1]+1)-0.5
-            grp_num = len(grp_list)
-
-            # Set up matrices
-            p_matrix = np.zeros((grp_num, grp_num, n_months), dtype=np.float32) # For probability (ij)
-            f_matrix = np.zeros_like(p_matrix, dtype=np.float32) # For flux (ij)
-            t_matrix = np.zeros_like(p_matrix, dtype=np.float32) # For transit time (ij)
-
-            p_matrix_chunk = np.zeros_like(p_matrix, dtype=np.float32) # For probability (ij)
-            f_matrix_chunk = np.zeros_like(p_matrix, dtype=np.float32) # For flux (ij)
-            t_matrix_chunk = np.zeros_like(p_matrix, dtype=np.float32) # For transit time (ij)
-
-            # Set up progress bar
-            pbar = tqdm(total = len(fh_list))
-            pbar_step = np.array([0], dtype=np.int16)
-        else:
-            fh_list_chunk, max_files_per_chunk = None, None
-            grp_list, grp_bnds = None, None
-            p_matrix, f_matrix, t_matrix = None, None, None
-            p_matrix_chunk, f_matrix_chunk, t_matrix_chunk = None, None, None
-            root_y, e_num_full, self.cfg['dt'], self.cfg['lpc'] = None, None, None, None
-            pbar_step = None
-
-        comm.Barrier()
-
-        fh_list_chunk = comm.bcast(fh_list_chunk, root=0)[rank]
-        max_files_per_chunk = comm.bcast(max_files_per_chunk, root=0)
-        grp_list = comm.bcast(grp_list, root=0)
-        grp_bnds = comm.bcast(grp_bnds, root=0)
-        p_matrix_chunk = comm.bcast(p_matrix_chunk, root=0)
-        f_matrix_chunk = comm.bcast(f_matrix_chunk, root=0)
-        t_matrix_chunk = comm.bcast(t_matrix_chunk, root=0)
-        root_y = comm.bcast(root_y, root=0)
-        self.cfg['max_events'] = comm.bcast(e_num_full, root=0)
-        self.cfg['dt'] = comm.bcast(self.cfg['dt'], root=0)
-        self.cfg['lpc'] = comm.bcast(self.cfg['lpc'], root=0)
-
-        chunk_status = 0
-
-        if len(fh_list_chunk) < max_files_per_chunk:
-            # Make sure all processes have the same number of loops
-            fh_list_chunk = np.append(fh_list_chunk, None)
-
-        for fhi, fh in enumerate(fh_list_chunk):
-            if fh != None:
-                with Dataset(fh, mode='r') as nc:
-                    pid = nc.variables['trajectory'][:] # Trajectory ID
-
-                    # Filter IDs
-                    if self.cfg['subset']:
-                        sub_id = np.where(pid%self.cfg['subset'] == 0)[0]
-                    else:
-                        sub_id = np.arange(len(pid))
-
-                    e_num = nc.variables['e_num'][:][sub_id] # Number of events stored per trajectory
-                    n_traj = np.shape(e_num)[0] # Number of trajectories in file/subset
-
-                    if not n_traj:
-                        # Skip if there are no trajectories stored in file
-                        continue
-
-                    # Extract origin date from filename
-                    y0 = int(fh.split('/')[-1].split('_')[-5])
-                    m0 = int(fh.split('/')[-1].split('_')[-4])
-                    d0 = int(fh.split('/')[-1].split('_')[-3].split('.')[0])
-                    assert y0 < 2025 and y0 > 1990
-                    assert m0 < 13 and m0 > 0
-                    assert d0 < 32 and d0 > 0
-                    t0 = datetime(year=y0, month=m0, day=d0, hour=0)
-
-                    # Load all data into memory
-                    idx_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
-                    t0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
-                    dt_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
-                    ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
-
-                    for i in range(self.cfg['max_events']):
-                        idx_array[:, i] = nc.variables['i' + str(i)][:, 0][sub_id]
-                        t0_array[:, i] = nc.variables['ts' + str(i)][:, 0][sub_id]*self.cfg['dt']-self.cfg['tc'] # Time at arrival
-                        dt_array[:, i] = nc.variables['dt' + str(i)][:, 0][sub_id]*self.cfg['dt'] # Time at site
-
-                    idx0_array = nc.variables['idx0'][:][sub_id]
-
-                    mask = (idx_array == 0) # Mask out null-events
-                    mask[t0_array + dt_array < 0] = True # Mask out entirely incompetent events
-
-                # Adjust times for events partially pre-competent
-                dt_array[t0_array < 0] += t0_array[t0_array < 0]
-                t0_array[t0_array < 0] = 0
-
-                # Now generate an array containing the reef fraction, t0, and dt for each index
-                fr_array = translate(idx_array, self.dicts['rf'])
-                fr_array = np.ma.masked_array(fr_array, mask=mask) # Reef fraction
-                t0_array = np.ma.masked_array(t0_array, mask=mask) # Time at arrival
-                dt_array = np.ma.masked_array(dt_array, mask=mask) # Time spent at site
+                # Load all data into memory
+                idx_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.uint16)
+                t0_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                dt_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
+                ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
 
                 for i in range(self.cfg['max_events']):
-                    if i == 0:
-                        psi0 = np.zeros((n_traj,), dtype=np.float32)
-                        int0 = np.zeros((n_traj,), dtype=np.float32)
-                        t1_prev = np.zeros((n_traj,), dtype=np.float32)
+                    idx_array[:, i] = nc.variables['i' + str(i)][:, 0][sub_id]
+                    t0_array[:, i] = nc.variables['ts' + str(i)][:, 0][sub_id]*self.cfg['dt']-self.cfg['tc'] # Time at arrival
+                    dt_array[:, i] = nc.variables['dt' + str(i)][:, 0][sub_id]*self.cfg['dt'] # Time at site
 
-                    fr = fr_array[:, i]
-                    t0 = t0_array[:, i]
-                    dt = dt_array[:, i]
+                idx0_array = nc.variables['idx0'][:][sub_id]
 
-                    if i > 0:
-                        t1_prev[np.logical_and(~t0.mask, t1_prev.mask)] = 0
-                        t1_prev.mask = t0.mask
+                mask = (idx_array == 0) # Mask out null-events
+                mask[t0_array + dt_array < 0] = True # Mask out entirely incompetent events
 
-                    # Note - this integration is carried out in double precision
-                    # due to some of the very large numbers in sub-steps. There
-                    # will definitely be a more efficient/precise way of doing
-                    # this, but I sadly do not have the time right now...
-                    ns_array[:, i], int0 = self.integrate_event(psi0.astype(np.float64),
-                                                                int0.astype(np.float64),
-                                                                fr.astype(np.float64),
-                                                                self.cfg['a'].astype(np.float64),
-                                                                self.cfg['b'].astype(np.float64),
-                                                                self.cfg['tc'].astype(np.float64),
-                                                                self.cfg['μs'].astype(np.float64),
-                                                                self.cfg['σ'].astype(np.float64),
-                                                                self.cfg['λ'].astype(np.float64),
-                                                                self.cfg['ν'].astype(np.float64),
-                                                                t0.astype(np.float64),
-                                                                t1_prev.astype(np.float64),
-                                                                dt.astype(np.float64))
+            # Adjust times for events partially pre-competent
+            dt_array[t0_array < 0] += t0_array[t0_array < 0]
+            t0_array[t0_array < 0] = 0
 
-                    t1_prev = t0 + dt
-                    psi0 = psi0 + fr*dt
+            # Now generate an array containing the reef fraction, t0, and dt for each index
+            fr_array = translate(idx_array, self.dicts['rf'])
+            fr_array = np.ma.masked_array(fr_array, mask=mask) # Reef fraction
+            t0_array = np.ma.masked_array(t0_array, mask=mask) # Time at arrival
+            dt_array = np.ma.masked_array(dt_array, mask=mask) # Time spent at site
 
-                # Remask for small numbers of NaNs that may appear during integration
-                # mask[~np.isnan(ns_array)] = True
+            for i in range(self.cfg['max_events']):
+                if i == 0:
+                    psi0 = np.zeros((n_traj,), dtype=np.float32)
+                    int0 = np.zeros((n_traj,), dtype=np.float32)
+                    t1_prev = np.zeros((n_traj,), dtype=np.float32)
 
-                ns_array = np.ma.masked_array(ns_array, mask=mask).compressed()
-                t0_array = np.ma.masked_array(t0_array, mask=mask).compressed()
-                dt_array = np.ma.masked_array(dt_array, mask=mask).compressed()
+                fr = fr_array[:, i]
+                t0 = t0_array[:, i]
+                dt = dt_array[:, i]
 
-                # From the index array, extract group
-                grp_array = np.floor(idx_array/(2**8)).astype(np.uint8)
-                grp_array = np.ma.masked_array(grp_array, mask=mask).compressed()
+                if i > 0:
+                    t1_prev[np.logical_and(~t0.mask, t1_prev.mask)] = 0
+                    t1_prev.mask = t0.mask
 
-                # Extract origin group and project
-                grp0 = np.floor(idx0_array/(2**8)).astype(np.uint8)
-                grp0_array = np.zeros_like(idx_array, dtype=np.uint8)
-                grp0_array[:] = grp0
-                grp0_array = np.ma.masked_array(grp0_array, mask=mask).compressed()
+                # Note - this integration is carried out in double precision
+                # due to some of the very large numbers in sub-steps. There
+                # will definitely be a more efficient/precise way of doing
+                # this, but I sadly do not have the time right now...
+                ns_array[:, i], int0 = self.integrate_event(psi0.astype(np.float64),
+                                                            int0.astype(np.float64),
+                                                            fr.astype(np.float64),
+                                                            self.cfg['a'].astype(np.float64),
+                                                            self.cfg['b'].astype(np.float64),
+                                                            self.cfg['tc'].astype(np.float64),
+                                                            self.cfg['μs'].astype(np.float64),
+                                                            self.cfg['σ'].astype(np.float64),
+                                                            self.cfg['λ'].astype(np.float64),
+                                                            self.cfg['ν'].astype(np.float64),
+                                                            t0.astype(np.float64),
+                                                            t1_prev.astype(np.float64),
+                                                            dt.astype(np.float64))
 
-                # Extract origin reef cover and project
-                rc0_array = np.zeros_like(idx_array, dtype=np.float32)
-                rc0_array[:] = translate(idx0_array, self.dicts['rc'])
-                rc0_array = np.ma.masked_array(rc0_array, mask=mask).compressed()
+                t1_prev = t0 + dt
+                psi0 = psi0 + fr*dt
 
-                # Extract origin number of cells per group and project
-                cpg0_array = np.zeros_like(idx_array, dtype=np.uint16)
-                cpg0_array[:] = translate(grp0, self.dicts['grp_numcell'])
-                cpg0_array = np.ma.masked_array(cpg0_array, mask=mask).compressed()
+            # Remask for small numbers of NaNs that may appear during integration
+            # mask[~np.isnan(ns_array)] = True
 
-                filter_mask = 1-np.isin(grp_array, grp_list)*np.isin(grp0_array, grp_list)
-                grp_i_array = np.ma.masked_array(grp0_array, mask=filter_mask).compressed()
-                grp_j_array = np.ma.masked_array(grp_array, mask=filter_mask).compressed()
-                rc_i_array = np.ma.masked_array(rc0_array, mask=filter_mask).compressed()
-                cpg_i_array = np.ma.masked_array(cpg0_array, mask=filter_mask).compressed()
-                ns_ij_array = np.ma.masked_array(ns_array, mask=filter_mask).compressed()
-                t0_ij_array = np.ma.masked_array(t0_array, mask=filter_mask).compressed()
-                dt_j_array = np.ma.masked_array(dt_array, mask=filter_mask).compressed()
+            ns_array = np.ma.masked_array(ns_array, mask=mask).compressed()
+            t0_array = np.ma.masked_array(t0_array, mask=mask).compressed()
+            dt_array = np.ma.masked_array(dt_array, mask=mask).compressed()
 
-                p_matrix_weights = ns_ij_array/(self.cfg['lpc']*self.cfg['rpm']*cpg_i_array)
-                f_matrix_weights = ns_ij_array*rc_i_array*self.cfg['ldens']/(self.cfg['rpm']*self.cfg['lpc'])
-                t_matrix_weights = f_matrix_weights*(self.cfg['tc'] + t0_ij_array + 0.5*dt_j_array)
+            # From the index array, extract group
+            grp_array = np.floor(idx_array/(2**8)).astype(np.uint8)
+            grp_array = np.ma.masked_array(grp_array, mask=mask).compressed()
 
-                # Find time index
-                ti = m0 + (y0 - root_y)*12 - 1
+            # Extract origin group and project
+            grp0 = np.floor(idx0_array/(2**8)).astype(np.uint8)
+            grp0_array = np.zeros_like(idx_array, dtype=np.uint8)
+            grp0_array[:] = grp0
+            grp0_array = np.ma.masked_array(grp0_array, mask=mask).compressed()
 
-                # Now grid quantities:
-                # p(i, j, t) = sum(ns[i, j])/(lpc[i]*rpm*cpg[i])
-                #              ns: fraction of released larvae from i settling at j
-                #              lpc: larvae per cell
-                #              rpm: releases per month
-                #              cpg: cells per release group
+            # Extract origin reef cover and project
+            rc0_array = np.zeros_like(idx_array, dtype=np.float32)
+            rc0_array[:] = translate(idx0_array, self.dicts['rc'])
+            rc0_array = np.ma.masked_array(rc0_array, mask=mask).compressed()
 
-                # f(i, j, t) = sum(ns[i, j]*rc[i]*ldens)/(rpm*lpc[i])
-                #              rc: reef cover (m2)
-                #              ldens: larvae per unit reef cover (m2) per month
+            # Extract origin number of cells per group and project
+            cpg0_array = np.zeros_like(idx_array, dtype=np.uint16)
+            cpg0_array[:] = translate(grp0, self.dicts['grp_numcell'])
+            cpg0_array = np.ma.masked_array(cpg0_array, mask=mask).compressed()
 
-                # t(i, j, t) = sum(f(i, j, t)*(t0[i, j]+0.5*dt[i, j]))/sum(f(i, j, t))
-                #              Note that this is the flux-weighted time mean
-                #              t0 + dt: time taken for larva to travel from i to j
+            filter_mask = 1-np.isin(grp_array, grp_list)*np.isin(grp0_array, grp_list)
+            grp_i_array = np.ma.masked_array(grp0_array, mask=filter_mask).compressed()
+            grp_j_array = np.ma.masked_array(grp_array, mask=filter_mask).compressed()
+            rc_i_array = np.ma.masked_array(rc0_array, mask=filter_mask).compressed()
+            cpg_i_array = np.ma.masked_array(cpg0_array, mask=filter_mask).compressed()
+            ns_ij_array = np.ma.masked_array(ns_array, mask=filter_mask).compressed()
+            t0_ij_array = np.ma.masked_array(t0_array, mask=filter_mask).compressed()
+            dt_j_array = np.ma.masked_array(dt_array, mask=filter_mask).compressed()
 
-                p_matrix_chunk[:, :, ti] += np.histogram2d(grp_j_array, grp_i_array,
-                                                           bins=[grp_bnds, grp_bnds],
-                                                           weights=p_matrix_weights)[0]
+            p_matrix_weights = ns_ij_array/(self.cfg['lpc']*self.cfg['rpm']*cpg_i_array)
+            f_matrix_weights = ns_ij_array*rc_i_array*self.cfg['ldens']/(self.cfg['rpm']*self.cfg['lpc'])
+            t_matrix_weights = f_matrix_weights*(self.cfg['tc'] + t0_ij_array + 0.5*dt_j_array)
 
-                f_matrix_chunk[:, :, ti] = np.histogram2d(grp_j_array, grp_i_array,
-                                                          bins=[grp_bnds, grp_bnds],
-                                                          weights=f_matrix_weights)[0]
+            # Find time index
+            ti = m0 + (y0 - root_y)*12 - 1
 
-                # Note that this is just the top half of the fraction - normalise
-                # further down the pipeline
+            # Now grid quantities:
+            # p(i, j, t) = sum(ns[i, j])/(lpc[i]*rpm*cpg[i])
+            #              ns: fraction of released larvae from i settling at j
+            #              lpc: larvae per cell
+            #              rpm: releases per month
+            #              cpg: cells per release group
 
-                t_matrix_chunk[:, :, ti] += np.histogram2d(grp_j_array, grp_i_array,
-                                                           bins=[grp_bnds, grp_bnds],
-                                                           weights=t_matrix_weights)[0]
+            # f(i, j, t) = sum(ns[i, j]*rc[i]*ldens)/(rpm*lpc[i])
+            #              rc: reef cover (m2)
+            #              ldens: larvae per unit reef cover (m2) per month
 
-                chunk_status = np.array([1], dtype=np.int16)
-            else:
-                chunk_status = np.array([0], dtype=np.int16)
+            # t(i, j, t) = sum(f(i, j, t)*(t0[i, j]+0.5*dt[i, j]))/sum(f(i, j, t))
+            #              Note that this is the flux-weighted time mean
+            #              t0 + dt: time taken for larva to travel from i to j
 
-            comm.Barrier()
+            p_matrix[:, :, ti] += np.histogram2d(grp_j_array, grp_i_array,
+                                                 bins=[grp_bnds, grp_bnds],
+                                                 weights=p_matrix_weights)[0]
 
-            comm.Reduce([chunk_status, MPI.SHORT],
-                        [pbar_step, MPI.SHORT],
-                        op = MPI.SUM,
-                        root = 0)
+            f_matrix[:, :, ti] = np.histogram2d(grp_j_array, grp_i_array,
+                                                bins=[grp_bnds, grp_bnds],
+                                                weights=f_matrix_weights)[0]
 
-            if rank == 0:
-                pbar.update(int(pbar_step))
-                pbar_step = np.array([0], dtype=np.int16)
+            # Note that this is just the top half of the fraction - normalise
+            # further down the pipeline
 
-        # After all processes are finished, synchronise matrices in rank-0 process
-        comm.Barrier()
+            t_matrix[:, :, ti] += np.histogram2d(grp_j_array, grp_i_array,
+                                                 bins=[grp_bnds, grp_bnds],
+                                                 weights=t_matrix_weights)[0]
 
-        comm.Reduce([p_matrix_chunk, MPI.FLOAT],
-                    [p_matrix, MPI.FLOAT],
-                    op = MPI.SUM,
-                    root = 0)
-
-        comm.Reduce([f_matrix_chunk, MPI.FLOAT],
-                    [f_matrix, MPI.FLOAT],
-                    op = MPI.SUM,
-                    root = 0)
-
-        comm.Reduce([t_matrix_chunk, MPI.FLOAT],
-                    [t_matrix, MPI.FLOAT],
-                    op = MPI.SUM,
-                    root = 0)
-
-        # A last barrier is needed to keep matrices in memory for rank-0
-        comm.Barrier()
-
-        if rank == 0:
-            return [p_matrix, f_matrix, t_matrix, matrix_t_axis]
+        return [p_matrix, f_matrix, t_matrix, matrix_t_axis]
 
         self.status['matrix'] = True
 
