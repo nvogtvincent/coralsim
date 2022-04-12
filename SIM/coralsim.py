@@ -2636,7 +2636,6 @@ class Experiment():
                 dt_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
 
                 fr_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32) # Fraction of reef
-                ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32) # Number/proportion settling
                 ns_test_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32) # Number/proportion settling from test kernel
 
                 for i in range(self.cfg['max_events']):
@@ -2645,12 +2644,36 @@ class Experiment():
                     dt_array[:, i] = nc.variables['dt' + str(i)][:, 0]*self.cfg['dt'] # Time spent at site
                     ns_test_array[:, i] = nc.variables['Ns' + str(i)][:, 0]
 
-            mask = (idx_array == 0) # Mask out null-events
-            mask[t0_array + dt_array < 0] = True # Mask out entirely incompetent events
-
-            # Adjust times for events partially pre-competent
+            # Adjust times for events that are partially pre-competent
             dt_array[t0_array < 0] += t0_array[t0_array < 0]
-            t0_array[t0_array < 0] = 0
+
+            # Now mask out invalid events (pre-competent, or null)
+            t0_array[t0_array < 0] = 9999
+            sort_idx = np.argsort(t0_array, axis=1)
+            t0_array = np.take_along_axis(t0_array, sort_idx, axis=1)
+            dt_array = np.take_along_axis(dt_array, sort_idx, axis=1)
+            idx_array = np.take_along_axis(idx_array, sort_idx, axis=1)
+            ns_test_array = np.take_along_axis(ns_test_array, sort_idx, axis=1)
+
+            mask_ = (t0_array != 9999)
+
+            # Now remove entirely invalid columns
+            t0_array = t0_array[:, np.any(mask_, axis=0)]
+            dt_array = dt_array[:, np.any(mask_, axis=0)]
+            idx_array = idx_array[:, np.any(mask_, axis=0)]
+            ns_test_array = ns_test_array[:, np.any(mask_, axis=0)]
+            mask = (t0_array != 9999)
+
+            # Now remove entirely invalid rows
+            t0_array = t0_array[np.any(mask_, axis=1), :]
+            dt_array = dt_array[np.any(mask_, axis=1), :]
+            idx_array = idx_array[np.any(mask_, axis=1), :]
+            ns_test_array = ns_test_array[np.any(mask_, axis=1), :]
+            mask = (t0_array == 9999)
+
+            ns_array = np.zeros(np.shape(mask), dtype=np.float32)
+            n_traj_reduced = np.shape(mask)[0]
+            n_events_reduced = np.shape(mask)[1]
 
             # Now generate an array containing the reef fraction for each index
             def translate(c1, c2):
@@ -2668,11 +2691,11 @@ class Experiment():
             dt_array = np.ma.masked_array(dt_array, mask=mask) # Time spent at site
 
             # Now calculate the fractional losses
-            for i in range(self.cfg['max_events']):
+            for i in range(n_events_reduced):
                 if i == 0:
-                    psi0 = np.zeros((n_traj,), dtype=np.float32)
-                    int0 = np.zeros((n_traj,), dtype=np.float32)
-                    t1_prev = np.zeros((n_traj,), dtype=np.float32)
+                    psi0 = np.zeros((n_traj_reduced,), dtype=np.float32)
+                    int0 = np.zeros((n_traj_reduced,), dtype=np.float32)
+                    t1_prev = np.zeros((n_traj_reduced,), dtype=np.float32)
 
                 fr = fr_array[:, i]
                 t0 = t0_array[:, i]
@@ -2941,10 +2964,11 @@ class Experiment():
         else:
             self.cfg['subset'] = False
 
-        if 'e_num_ceil' in kwargs.keys():
-            self.cfg['e_num_ceil'] = int(kwargs['e_num_ceil'])
+        if 'e_num_limit' in kwargs.keys():
+            self.cfg['e_num_limit'] = True
+            self.cfg['e_num_limit_array'] = kwargs['e_num_limit']
         else:
-            self.cfg['e_num_ceil'] = False
+            self.cfg['e_num_limit'] = False
 
         # Define translation function
         def translate(c1, c2):
@@ -2973,6 +2997,9 @@ class Experiment():
 
             if self.cfg['tc']*86400 < int(nc.min_competency_seconds):
                 raise Exception('Minimum competency chosen is smaller than the value used at run-time (' + str(int(nc.min_competency_seconds)) +'s).')
+
+            if self.cfg['e_num_limit']:
+                assert self.cfg['e_num_limit_array'].max() <= self.cfg['max_events']
 
         # Get the full time range
         t0_list = []
@@ -3008,11 +3035,16 @@ class Experiment():
         grp_num = len(grp_list)
 
         # Set up matrices
-        p_matrix = np.zeros((grp_num, grp_num, n_months), dtype=np.float32) # For probability (ij)
+        if not self.cfg['e_num_limit']:
+            p_matrix = np.zeros((grp_num, grp_num, n_months), dtype=np.float32) # For probability (ij)
+        else:
+            e_num_lim_num = len(self.cfg['e_num_limit_array'])
+            p_matrix = np.zeros((grp_num, grp_num, n_months, e_num_lim_num), dtype=np.float32) # For probability (ij)
+
         f_matrix = np.zeros_like(p_matrix, dtype=np.float32) # For flux (ij)
         t_matrix = np.zeros_like(p_matrix, dtype=np.float32) # For transit time (ij)
 
-        for fhi, fh in enumerate(fh_list):
+        for fhi, fh in tqdm(enumerate(fh_list), total=len(fh_list)):
             with Dataset(fh, mode='r') as nc:
                 pid = nc.variables['trajectory'][:] # Trajectory ID
 
@@ -3022,8 +3054,7 @@ class Experiment():
                 else:
                     sub_id = np.arange(len(pid))
 
-                e_num = nc.variables['e_num'][:][sub_id] # Number of events stored per trajectory
-                n_traj = np.shape(e_num)[0] # Number of trajectories in file/subset
+                n_traj = np.shape( nc.variables['e_num'][:][sub_id])[0] # Number of trajectories in file/subset
 
                 if not n_traj:
                     # Skip if there are no trajectories stored in file
@@ -3051,12 +3082,37 @@ class Experiment():
 
                 idx0_array = nc.variables['idx0'][:][sub_id]
 
-                mask = (idx_array == 0) # Mask out null-events
-                mask[t0_array + dt_array < 0] = True # Mask out entirely incompetent events
+                # Adjust times for events that are partially pre-competent
+                dt_array[t0_array < 0] += t0_array[t0_array < 0]
 
-            # Adjust times for events partially pre-competent
-            dt_array[t0_array < 0] += t0_array[t0_array < 0]
-            t0_array[t0_array < 0] = 0
+                # Now mask out invalid events (pre-competent, or null)
+                t0_array[t0_array < 0] = 9999
+                sort_idx = np.argsort(t0_array, axis=1)
+                t0_array = np.take_along_axis(t0_array, sort_idx, axis=1)
+                dt_array = np.take_along_axis(dt_array, sort_idx, axis=1)
+                idx_array = np.take_along_axis(idx_array, sort_idx, axis=1)
+
+                mask_ = (t0_array != 9999)
+
+                # Now remove entirely invalid columns
+                t0_array = t0_array[:, np.any(mask_, axis=0)]
+                dt_array = dt_array[:, np.any(mask_, axis=0)]
+                idx_array = idx_array[:, np.any(mask_, axis=0)]
+                mask = (t0_array != 9999)
+
+                # Now remove entirely invalid rows
+                t0_array = t0_array[np.any(mask_, axis=1), :]
+                dt_array = dt_array[np.any(mask_, axis=1), :]
+                idx_array = idx_array[np.any(mask_, axis=1), :]
+                idx0_array = idx0_array[np.any(mask_, axis=1)]
+                mask = (t0_array == 9999)
+
+                ns_array = np.zeros(np.shape(mask), dtype=np.float32)
+                n_traj_reduced = np.shape(mask)[0]
+                n_events_reduced = np.shape(mask)[1]
+
+                if self.cfg['e_num_limit']:
+                    n_events_reduced = np.min([self.cfg['max_events'], n_events_reduced])
 
             # Now generate an array containing the reef fraction, t0, and dt for each index
             fr_array = translate(idx_array, self.dicts['rf'])
@@ -3064,19 +3120,15 @@ class Experiment():
             t0_array = np.ma.masked_array(t0_array, mask=mask) # Time at arrival
             dt_array = np.ma.masked_array(dt_array, mask=mask) # Time spent at site
 
-            for i in range(self.cfg['max_events']):
+            for i in range(n_events_reduced):
                 if i == 0:
-                    psi0 = np.zeros((n_traj,), dtype=np.float32)
-                    int0 = np.zeros((n_traj,), dtype=np.float32)
-                    t1_prev = np.zeros((n_traj,), dtype=np.float32)
+                    psi0 = np.zeros((n_traj_reduced,), dtype=np.float32)
+                    int0 = np.zeros((n_traj_reduced,), dtype=np.float32)
+                    t1_prev = np.zeros((n_traj_reduced,), dtype=np.float32)
 
                 fr = fr_array[:, i]
                 t0 = t0_array[:, i]
                 dt = dt_array[:, i]
-
-                if i > 0:
-                    t1_prev[np.logical_and(~t0.mask, t1_prev.mask)] = 0
-                    t1_prev.mask = t0.mask
 
                 # Note - this integration is carried out in double precision
                 # due to some of the very large numbers in sub-steps. There
@@ -3099,78 +3151,136 @@ class Experiment():
                 t1_prev = t0 + dt
                 psi0 = psi0 + fr*dt
 
-            # Remask for small numbers of NaNs that may appear during integration
-            # mask[~np.isnan(ns_array)] = True
+            if not self.cfg['e_num_limit']:
+                # Compress earlier to accelerate calculations
+                ns_array = np.ma.masked_array(ns_array, mask=mask).compressed()
+                t0_array = np.ma.masked_array(t0_array, mask=mask).compressed()
+                dt_array = np.ma.masked_array(dt_array, mask=mask).compressed()
 
-            ns_array = np.ma.masked_array(ns_array, mask=mask).compressed()
-            t0_array = np.ma.masked_array(t0_array, mask=mask).compressed()
-            dt_array = np.ma.masked_array(dt_array, mask=mask).compressed()
+                # From the index array, extract group
+                grp_array = np.floor(idx_array/(2**8)).astype(np.uint8)
+                grp_array = np.ma.masked_array(grp_array, mask=mask).compressed()
 
-            # From the index array, extract group
-            grp_array = np.floor(idx_array/(2**8)).astype(np.uint8)
-            grp_array = np.ma.masked_array(grp_array, mask=mask).compressed()
+                # Extract origin group and project
+                grp0 = np.floor(idx0_array/(2**8)).astype(np.uint8)
+                grp0_array = np.zeros_like(idx_array, dtype=np.uint8)
+                grp0_array[:] = grp0
+                grp0_array = np.ma.masked_array(grp0_array, mask=mask).compressed()
 
-            # Extract origin group and project
-            grp0 = np.floor(idx0_array/(2**8)).astype(np.uint8)
-            grp0_array = np.zeros_like(idx_array, dtype=np.uint8)
-            grp0_array[:] = grp0
-            grp0_array = np.ma.masked_array(grp0_array, mask=mask).compressed()
+                # Extract origin reef cover and project
+                rc0_array = np.zeros_like(idx_array, dtype=np.float32)
+                rc0_array[:] = translate(idx0_array, self.dicts['rc'])
+                rc0_array = np.ma.masked_array(rc0_array, mask=mask).compressed()
 
-            # Extract origin reef cover and project
-            rc0_array = np.zeros_like(idx_array, dtype=np.float32)
-            rc0_array[:] = translate(idx0_array, self.dicts['rc'])
-            rc0_array = np.ma.masked_array(rc0_array, mask=mask).compressed()
+                # Extract origin number of cells per group and project
+                cpg0_array = np.zeros_like(idx_array, dtype=np.uint16)
+                cpg0_array[:] = translate(grp0, self.dicts['grp_numcell'])
+                cpg0_array = np.ma.masked_array(cpg0_array, mask=mask).compressed()
 
-            # Extract origin number of cells per group and project
-            cpg0_array = np.zeros_like(idx_array, dtype=np.uint16)
-            cpg0_array[:] = translate(grp0, self.dicts['grp_numcell'])
-            cpg0_array = np.ma.masked_array(cpg0_array, mask=mask).compressed()
+                filter_mask = 1-np.isin(grp_array, grp_list)*np.isin(grp0_array, grp_list)
+                grp_i_array = np.ma.masked_array(grp0_array, mask=filter_mask).compressed()
+                grp_j_array = np.ma.masked_array(grp_array, mask=filter_mask).compressed()
+                rc_i_array = np.ma.masked_array(rc0_array, mask=filter_mask).compressed()
+                cpg_i_array = np.ma.masked_array(cpg0_array, mask=filter_mask).compressed()
+                ns_ij_array = np.ma.masked_array(ns_array, mask=filter_mask).compressed()
+                t0_ij_array = np.ma.masked_array(t0_array, mask=filter_mask).compressed()
+                dt_j_array = np.ma.masked_array(dt_array, mask=filter_mask).compressed()
 
-            filter_mask = 1-np.isin(grp_array, grp_list)*np.isin(grp0_array, grp_list)
-            grp_i_array = np.ma.masked_array(grp0_array, mask=filter_mask).compressed()
-            grp_j_array = np.ma.masked_array(grp_array, mask=filter_mask).compressed()
-            rc_i_array = np.ma.masked_array(rc0_array, mask=filter_mask).compressed()
-            cpg_i_array = np.ma.masked_array(cpg0_array, mask=filter_mask).compressed()
-            ns_ij_array = np.ma.masked_array(ns_array, mask=filter_mask).compressed()
-            t0_ij_array = np.ma.masked_array(t0_array, mask=filter_mask).compressed()
-            dt_j_array = np.ma.masked_array(dt_array, mask=filter_mask).compressed()
+                p_matrix_weights = ns_ij_array/(self.cfg['lpc']*self.cfg['rpm']*cpg_i_array)
+                f_matrix_weights = ns_ij_array*rc_i_array*self.cfg['ldens']/(self.cfg['rpm']*self.cfg['lpc'])
+                t_matrix_weights = f_matrix_weights*(self.cfg['tc'] + t0_ij_array + 0.5*dt_j_array)
 
-            p_matrix_weights = ns_ij_array/(self.cfg['lpc']*self.cfg['rpm']*cpg_i_array)
-            f_matrix_weights = ns_ij_array*rc_i_array*self.cfg['ldens']/(self.cfg['rpm']*self.cfg['lpc'])
-            t_matrix_weights = f_matrix_weights*(self.cfg['tc'] + t0_ij_array + 0.5*dt_j_array)
+                # Find time index
+                ti = m0 + (y0 - root_y)*12 - 1
 
-            # Find time index
-            ti = m0 + (y0 - root_y)*12 - 1
+                # Now grid quantities:
+                # p(i, j, t) = sum(ns[i, j])/(lpc[i]*rpm*cpg[i])
+                #              ns: fraction of released larvae from i settling at j
+                #              lpc: larvae per cell
+                #              rpm: releases per month
+                #              cpg: cells per release group
 
-            # Now grid quantities:
-            # p(i, j, t) = sum(ns[i, j])/(lpc[i]*rpm*cpg[i])
-            #              ns: fraction of released larvae from i settling at j
-            #              lpc: larvae per cell
-            #              rpm: releases per month
-            #              cpg: cells per release group
+                # f(i, j, t) = sum(ns[i, j]*rc[i]*ldens)/(rpm*lpc[i])
+                #              rc: reef cover (m2)
+                #              ldens: larvae per unit reef cover (m2) per month
 
-            # f(i, j, t) = sum(ns[i, j]*rc[i]*ldens)/(rpm*lpc[i])
-            #              rc: reef cover (m2)
-            #              ldens: larvae per unit reef cover (m2) per month
+                # t(i, j, t) = sum(f(i, j, t)*(t0[i, j]+0.5*dt[i, j]))/sum(f(i, j, t))
+                #              Note that this is the flux-weighted time mean
+                #              t0 + dt: time taken for larva to travel from i to j
 
-            # t(i, j, t) = sum(f(i, j, t)*(t0[i, j]+0.5*dt[i, j]))/sum(f(i, j, t))
-            #              Note that this is the flux-weighted time mean
-            #              t0 + dt: time taken for larva to travel from i to j
+                p_matrix[:, :, ti] += np.histogram2d(grp_j_array, grp_i_array,
+                                                     bins=[grp_bnds, grp_bnds],
+                                                     weights=p_matrix_weights)[0]
 
-            p_matrix[:, :, ti] += np.histogram2d(grp_j_array, grp_i_array,
-                                                 bins=[grp_bnds, grp_bnds],
-                                                 weights=p_matrix_weights)[0]
+                f_matrix[:, :, ti] += np.histogram2d(grp_j_array, grp_i_array,
+                                                     bins=[grp_bnds, grp_bnds],
+                                                     weights=f_matrix_weights)[0]
 
-            f_matrix[:, :, ti] = np.histogram2d(grp_j_array, grp_i_array,
-                                                bins=[grp_bnds, grp_bnds],
-                                                weights=f_matrix_weights)[0]
+                # Note that this is just the top half of the fraction - normalise
+                # further down the pipeline
 
-            # Note that this is just the top half of the fraction - normalise
-            # further down the pipeline
+                t_matrix[:, :, ti] += np.histogram2d(grp_j_array, grp_i_array,
+                                                     bins=[grp_bnds, grp_bnds],
+                                                     weights=t_matrix_weights)[0]
+                print()
 
-            t_matrix[:, :, ti] += np.histogram2d(grp_j_array, grp_i_array,
-                                                 bins=[grp_bnds, grp_bnds],
-                                                 weights=t_matrix_weights)[0]
+            else:
+                ns_array = np.ma.masked_array(ns_array, mask=mask)
+                t0_array = np.ma.masked_array(t0_array, mask=mask)
+                dt_array = np.ma.masked_array(dt_array, mask=mask)
+
+                # From the index array, extract group
+                grp_array = np.floor(idx_array/(2**8)).astype(np.uint8)
+                grp_array = np.ma.masked_array(grp_array, mask=mask)
+
+                # Extract origin group and project
+                grp0 = np.floor(idx0_array/(2**8)).astype(np.uint8)
+                grp0_array = np.zeros_like(idx_array, dtype=np.uint8)
+                grp0_array[:] = grp0
+                grp0_array = np.ma.masked_array(grp0_array, mask=mask)
+
+                # Extract origin reef cover and project
+                rc0_array = np.zeros_like(idx_array, dtype=np.float32)
+                rc0_array[:] = translate(idx0_array, self.dicts['rc'])
+                rc0_array = np.ma.masked_array(rc0_array, mask=mask)
+
+                # Extract origin number of cells per group and project
+                cpg0_array = np.zeros_like(idx_array, dtype=np.uint16)
+                cpg0_array[:] = translate(grp0, self.dicts['grp_numcell'])
+                cpg0_array = np.ma.masked_array(cpg0_array, mask=mask)
+
+                # Find time index
+                ti = m0 + (y0 - root_y)*12 - 1
+
+                for i, lim in enumerate(self.cfg['e_num_limit_array']):
+                    filter_mask = 1-np.isin(grp_array[:, :lim], grp_list)*np.isin(grp0_array[:, :lim], grp_list)
+                    grp_i_array = np.ma.masked_array(grp0_array[:, :lim], mask=filter_mask).compressed()
+                    grp_j_array = np.ma.masked_array(grp_array[:, :lim], mask=filter_mask).compressed()
+                    rc_i_array = np.ma.masked_array(rc0_array[:, :lim], mask=filter_mask).compressed()
+                    cpg_i_array = np.ma.masked_array(cpg0_array[:, :lim], mask=filter_mask).compressed()
+                    ns_ij_array = np.ma.masked_array(ns_array[:, :lim], mask=filter_mask).compressed()
+                    t0_ij_array = np.ma.masked_array(t0_array[:, :lim], mask=filter_mask).compressed()
+                    dt_j_array = np.ma.masked_array(dt_array[:, :lim], mask=filter_mask).compressed()
+
+                    p_matrix_weights = ns_ij_array/(self.cfg['lpc']*self.cfg['rpm']*cpg_i_array)
+                    f_matrix_weights = ns_ij_array*rc_i_array*self.cfg['ldens']/(self.cfg['rpm']*self.cfg['lpc'])
+                    t_matrix_weights = f_matrix_weights*(self.cfg['tc'] + t0_ij_array + 0.5*dt_j_array)
+
+
+                    p_matrix[:, :, ti, i] += np.histogram2d(grp_j_array, grp_i_array,
+                                                            bins=[grp_bnds, grp_bnds],
+                                                            weights=p_matrix_weights)[0]
+
+                    f_matrix[:, :, ti, i] += np.histogram2d(grp_j_array, grp_i_array,
+                                                            bins=[grp_bnds, grp_bnds],
+                                                            weights=f_matrix_weights)[0]
+
+                    # Note that this is just the top half of the fraction - normalise
+                    # further down the pipeline
+
+                    t_matrix[:, :, ti, i] += np.histogram2d(grp_j_array, grp_i_array,
+                                                            bins=[grp_bnds, grp_bnds],
+                                                            weights=t_matrix_weights)[0]
 
         return [p_matrix, f_matrix, t_matrix, matrix_t_axis]
 
