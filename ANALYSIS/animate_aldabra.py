@@ -9,13 +9,14 @@ Created on Tue Apr 12 16:54:29 2022
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
-import matplotlib
 import cmasher as cmr
 import os
 import matplotlib.animation as animation
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from netCDF4 import Dataset
 from datetime import timedelta, datetime
 from tqdm import tqdm
+from glob import glob
 
 ##############################################################################
 # DEFINE INPUT FILES                                                         #
@@ -27,9 +28,10 @@ parameters = {'t0' : datetime(year=2019, month=10, day=1, hour=0),
               'dt' : timedelta(minutes=30),
               'xlim' : [38, 50],
               'ylim' : [-13, -6],
-              'min_dens' : 1e-9,
-              'n_frames' : 480,
-              'fps' : 48}
+              'min_dens' : 8e1,
+              'n_frames' : 120,
+              'fps' : 60,
+              'sf'  : 8000}
 
 # DIRECTORIES
 dirs = {}
@@ -43,7 +45,7 @@ dirs['traj'] = dirs['root'] + 'TRAJ/Aldabra/'
 fh = {}
 fh['winds_grid'] = dirs['grid'] + 'griddata_winds.nc'
 fh['coral_grid'] = dirs['grid'] + 'coral_grid.nc'
-fh['traj_data'] = dirs['traj'] + 'WINDS_Aldabra_release_2019_10_1_1_1.nc'
+fh['traj_data'] = np.array(sorted(glob(dirs['traj'] + 'WINDS_Aldabra_release_*.nc')))
 fh['out'] = dirs['fig'] + 'Aldabra_test_animation.mp4'
 
 ##############################################################################
@@ -65,6 +67,22 @@ with Dataset(fh['winds_grid'], mode='r') as nc:
 with Dataset(fh['coral_grid'], mode='r') as nc:
     rc = nc.variables['reef_cover_w'][:]
     lsm = nc.variables['lsm_w'][:]
+
+##############################################################################
+# GET A LIST OF TIME OFFSETS FOR INPUT FILES                                 #
+##############################################################################
+
+t0_list = []
+
+for fhi in fh['traj_data']:
+    t0_list.append(datetime(year=int(fhi.split('_')[-5]),
+                            month=int(fhi.split('_')[-4]),
+                            day=int(fhi.split('_')[-3]),
+                            hour=0))
+
+t0_list = np.array(t0_list)
+t_offset = ((t0_list - t0_list.min())/parameters['dt']).astype(int)
+fh0 = fh['traj_data'][np.where(t_offset == 0)[0]][0]
 
 ##############################################################################
 # SET UP BASE SCENE                                                          #
@@ -113,21 +131,34 @@ time_str = ax.text(ax.get_xlim()[-1]-0.1, ax.get_ylim()[-1]-0.1,
                    horizontalalignment='right', verticalalignment='top',
                    fontfamily='ubuntu', fontweight='bold', color='w')
 
-with Dataset(fh['traj_data'], mode='r') as nc:
-    p_lon = nc.variables['lon'][:]
-    p_lat = nc.variables['lat'][:]
-    n_traj = len(p_lat)
+def return_l2mean(plon, plat, lon_bnds, lat_bnds, l2):
+    weighted = np.histogram2d(plon, plat, bins=[lon_bnds, lat_bnds],
+                              weights=l2)[0].T
+    distro = np.histogram2d(plon, plat, bins=[lon_bnds, lat_bnds])[0].T
+    distro[distro == 0] = 1
+    histo = weighted/distro
 
-    p_l2 = nc.variables['L2'][:]/(n_traj*50)
+    return np.ma.masked_where(histo == 0, histo)
+
+def return_l2(plon, plat, lon_bnds, lat_bnds, l2):
+    weighted = np.histogram2d(plon, plat, bins=[lon_bnds, lat_bnds],
+                              weights=l2)[0].T
+
+    return np.ma.masked_where(weighted == 0, weighted)
+
+with Dataset(fh0, mode='r') as nc:
+    p_lon = nc.variables['lon'][:, 4]
+    p_lat = nc.variables['lat'][:, 4]
+    p_l2 = nc.variables['L2'][:, 4]*parameters['sf']
     p_l2[p_l2 == 0] = parameters['min_dens']
 
-p_density = np.histogram2d(p_lon[:, 0], p_lat[:, 0], bins=[lon_bnd, lat_bnd],
-                           weights=p_l2[:, 0])[0].T
+hist = ax.pcolormesh(lon_bnd, lat_bnd, return_l2(p_lon, p_lat, lon_bnd, lat_bnd, p_l2),
+                     cmap=cmr.ember, norm=colors.LogNorm(vmin=1e2, vmax=1e7), zorder=3)
 
-hist = ax.pcolormesh(lon_bnd, lat_bnd, np.ma.masked_where(p_density == 0, p_density),
-                     cmap=cmr.ember, norm=colors.LogNorm(vmin=parameters['min_dens'], vmax=1e-1),
-                     zorder=3)
-
+div = make_axes_locatable(ax)
+cax = div.append_axes('right', size='2%', pad=0.10)
+cbar = f.colorbar(hist, cax=cax, orientation='vertical')
+cbar.set_label('Number of competent larvae per grid cell', fontsize=16)
 
 ##############################################################################
 # ANIMATE                                                                    #
@@ -136,18 +167,36 @@ hist = ax.pcolormesh(lon_bnd, lat_bnd, np.ma.masked_where(p_density == 0, p_dens
 pbar = tqdm(total=parameters['n_frames']+1)
 
 def update_plot(frame):
-    p_density = np.histogram2d(p_lon[:, frame], p_lat[:, frame], bins=[lon_bnd, lat_bnd],
-                               weights=p_l2[:, frame])[0].T
-    hist.set_array(p_density.ravel())
+    # Determine which files are valid
+    valid_fh_list = fh['traj_data'][(t_offset <= frame)*(t_offset+5760 >= frame)]
+    valid_fh_offset_list = t_offset[(t_offset <= frame)*(t_offset+5760 >= frame)]
 
+    global p_lon
+    global p_lat
+    global p_l2
+    p_lon, p_lat, p_l2 = np.zeros((1,)), np.zeros((1,)), np.zeros((1,))
+
+    for fhi, offset in zip(valid_fh_list, valid_fh_offset_list):
+        with Dataset(fhi, mode='r'):
+            if fhi == valid_fh_list[0]:
+                p_lon = nc.variables['lon'][:, frame-offset]
+                p_lat = nc.variables['lat'][:, frame-offset]
+                p_l2 = nc.variables['L2'][:, frame-offset]*parameters['sf']
+            else:
+                p_lon = np.concatenate([p_lon, nc.variables['lon'][:, frame-offset]])
+                p_lat = np.concatenate([p_lat, nc.variables['lat'][:, frame-offset]])
+                p_l2 = np.concatenate([p_l2, nc.variables['L2'][:, frame-offset]])*parameters['sf']
+
+    p_l2[p_l2 == 0] = parameters['min_dens']
+    hist.set_array(return_l2(p_lon, p_lat, lon_bnd, lat_bnd, p_l2).ravel())
     time_str.set_text((frame_time+frame*parameters['dt']).strftime('%d/%m/%Y, %H:%M'))
 
     pbar.update(1)
 
+    return hist, time_str
 
 ani = animation.FuncAnimation(f, update_plot, parameters['n_frames'],
                               interval=1000/parameters['fps'])
-
 ani.save(fh['out'], fps=parameters['fps'], bitrate=16000,)
 
 
