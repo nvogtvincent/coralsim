@@ -13,10 +13,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import matplotlib.colors as colors
-import matplotlib
 import cmasher as cmr
 import pandas as pd
 import cartopy.crs as ccrs
+import xarray as xr
 from glob import glob
 from parcels import (Field, FieldSet, ParticleSet, JITParticle, AdvectionRK4,
                      ErrorCode, Variable)
@@ -208,7 +208,7 @@ class Experiment():
                  'grid' : 'C',
 
                  # Maximum number of events
-                 'e_num' : 200,
+                 'e_num' : 50,
 
                  # Velocity interpolation method
                  'interp_method': 'cgrid_velocity',
@@ -478,6 +478,9 @@ class Experiment():
             for filter_name in kwargs['filters'].keys():
                 if filter_name not in ['eez', 'grp']:
                     raise KeyError('Filter name ' + filter_name + ' not understood.')
+            filtering = True
+        else:
+            filtering = False
 
         if 'min_competency' in kwargs.keys():
             self.cfg['min_competency'] = kwargs['min_competency']
@@ -533,8 +536,9 @@ class Experiment():
         self.cfg['nsite_nofilter'] = int(np.sum(reef_mask))
 
         # Filter if applicable
-        for filter_name in kwargs['filters'].keys():
-            reef_mask *= np.isin(self.fields[filter_name], kwargs['filters'][filter_name])
+        if filtering:
+            for filter_name in kwargs['filters'].keys():
+                reef_mask *= np.isin(self.fields[filter_name], kwargs['filters'][filter_name])
 
         # Count number of sites identified
         self.cfg['nsite'] = int(np.sum(reef_mask))
@@ -1834,606 +1838,6 @@ class Experiment():
                             particle.i49 = particle.current_reef_idx
                             particle.ts49 = particle.current_reef_ts0
                             particle.dt49 = particle.current_reef_ts
-                        elif particle.e_num == 50:
-                            particle.i50 = particle.current_reef_idx
-                            particle.ts50 = particle.current_reef_ts0
-                            particle.dt50 = particle.current_reef_ts
-                        elif particle.e_num == 51:
-                            particle.i51 = particle.current_reef_idx
-                            particle.ts51 = particle.current_reef_ts0
-                            particle.dt51 = particle.current_reef_ts
-                        elif particle.e_num == 52:
-                            particle.i52 = particle.current_reef_idx
-                            particle.ts52 = particle.current_reef_ts0
-                            particle.dt52 = particle.current_reef_ts
-                        elif particle.e_num == 53:
-                            particle.i53 = particle.current_reef_idx
-                            particle.ts53 = particle.current_reef_ts0
-                            particle.dt53 = particle.current_reef_ts
-                        elif particle.e_num == 54:
-                            particle.i54 = particle.current_reef_idx
-                            particle.ts54 = particle.current_reef_ts0
-                            particle.dt54 = particle.current_reef_ts
-                        elif particle.e_num == 55:
-                            particle.i55 = particle.current_reef_idx
-                            particle.ts55 = particle.current_reef_ts0
-                            particle.dt55 = particle.current_reef_ts
-                        elif particle.e_num == 56:
-                            particle.i56 = particle.current_reef_idx
-                            particle.ts56 = particle.current_reef_ts0
-                            particle.dt56 = particle.current_reef_ts
-                        elif particle.e_num == 57:
-                            particle.i57 = particle.current_reef_idx
-                            particle.ts57 = particle.current_reef_ts0
-                            particle.dt57 = particle.current_reef_ts
-                        elif particle.e_num == 58:
-                            particle.i58 = particle.current_reef_idx
-                            particle.ts58 = particle.current_reef_ts0
-                            particle.dt58 = particle.current_reef_ts
-                        elif particle.e_num == 59:
-                            particle.i59 = particle.current_reef_idx
-                            particle.ts59 = particle.current_reef_ts0
-                            particle.dt59 = particle.current_reef_ts
-                        elif particle.e_num == 60:
-                            particle.i60 = particle.current_reef_idx
-                            particle.ts60 = particle.current_reef_ts0
-                            particle.dt60 = particle.current_reef_ts
-                        elif particle.e_num == 61:
-                            particle.i61 = particle.current_reef_idx
-                            particle.ts61 = particle.current_reef_ts0
-                            particle.dt61 = particle.current_reef_ts
-                        elif particle.e_num == 62:
-                            particle.i62 = particle.current_reef_idx
-                            particle.ts62 = particle.current_reef_ts0
-                            particle.dt62 = particle.current_reef_ts
-                        elif particle.e_num == 63:
-                            particle.i63 = particle.current_reef_idx
-                            particle.ts63 = particle.current_reef_ts0
-                            particle.dt63 = particle.current_reef_ts
-                        elif particle.e_num == 64:
-                            particle.i64 = particle.current_reef_idx
-                            particle.ts64 = particle.current_reef_ts0
-                            particle.dt64 = particle.current_reef_ts
-                        elif particle.e_num == 65:
-                            particle.i65 = particle.current_reef_idx
-                            particle.ts65 = particle.current_reef_ts0
-                            particle.dt65 = particle.current_reef_ts
-                        elif particle.e_num == 66:
-                            particle.i66 = particle.current_reef_idx
-                            particle.ts66 = particle.current_reef_ts0
-                            particle.dt66 = particle.current_reef_ts
-                        elif particle.e_num == 67:
-                            particle.i67 = particle.current_reef_idx
-                            particle.ts67 = particle.current_reef_ts0
-                            particle.dt67 = particle.current_reef_ts
-                        elif particle.e_num == 68:
-                            particle.i68 = particle.current_reef_idx
-                            particle.ts68 = particle.current_reef_ts0
-                            particle.dt68 = particle.current_reef_ts
-                        elif particle.e_num == 69:
-                            particle.i69 = particle.current_reef_idx
-                            particle.ts69 = particle.current_reef_ts0
-                            particle.dt69 = particle.current_reef_ts
-                        elif particle.e_num == 70:
-                            particle.i70 = particle.current_reef_idx
-                            particle.ts70 = particle.current_reef_ts0
-                            particle.dt70 = particle.current_reef_ts
-                        elif particle.e_num == 71:
-                            particle.i71 = particle.current_reef_idx
-                            particle.ts71 = particle.current_reef_ts0
-                            particle.dt71 = particle.current_reef_ts
-                        elif particle.e_num == 72:
-                            particle.i72 = particle.current_reef_idx
-                            particle.ts72 = particle.current_reef_ts0
-                            particle.dt72 = particle.current_reef_ts
-                        elif particle.e_num == 73:
-                            particle.i73 = particle.current_reef_idx
-                            particle.ts73 = particle.current_reef_ts0
-                            particle.dt73 = particle.current_reef_ts
-                        elif particle.e_num == 74:
-                            particle.i74 = particle.current_reef_idx
-                            particle.ts74 = particle.current_reef_ts0
-                            particle.dt74 = particle.current_reef_ts
-                        elif particle.e_num == 75:
-                            particle.i75 = particle.current_reef_idx
-                            particle.ts75 = particle.current_reef_ts0
-                            particle.dt75 = particle.current_reef_ts
-                        elif particle.e_num == 76:
-                            particle.i76 = particle.current_reef_idx
-                            particle.ts76 = particle.current_reef_ts0
-                            particle.dt76 = particle.current_reef_ts
-                        elif particle.e_num == 77:
-                            particle.i77 = particle.current_reef_idx
-                            particle.ts77 = particle.current_reef_ts0
-                            particle.dt77 = particle.current_reef_ts
-                        elif particle.e_num == 78:
-                            particle.i78 = particle.current_reef_idx
-                            particle.ts78 = particle.current_reef_ts0
-                            particle.dt78 = particle.current_reef_ts
-                        elif particle.e_num == 79:
-                            particle.i79 = particle.current_reef_idx
-                            particle.ts79 = particle.current_reef_ts0
-                            particle.dt79 = particle.current_reef_ts
-                        elif particle.e_num == 80:
-                            particle.i80 = particle.current_reef_idx
-                            particle.ts80 = particle.current_reef_ts0
-                            particle.dt80 = particle.current_reef_ts
-                        elif particle.e_num == 81:
-                            particle.i81 = particle.current_reef_idx
-                            particle.ts81 = particle.current_reef_ts0
-                            particle.dt81 = particle.current_reef_ts
-                        elif particle.e_num == 82:
-                            particle.i82 = particle.current_reef_idx
-                            particle.ts82 = particle.current_reef_ts0
-                            particle.dt82 = particle.current_reef_ts
-                        elif particle.e_num == 83:
-                            particle.i83 = particle.current_reef_idx
-                            particle.ts83 = particle.current_reef_ts0
-                            particle.dt83 = particle.current_reef_ts
-                        elif particle.e_num == 84:
-                            particle.i84 = particle.current_reef_idx
-                            particle.ts84 = particle.current_reef_ts0
-                            particle.dt84 = particle.current_reef_ts
-                        elif particle.e_num == 85:
-                            particle.i85 = particle.current_reef_idx
-                            particle.ts85 = particle.current_reef_ts0
-                            particle.dt85 = particle.current_reef_ts
-                        elif particle.e_num == 86:
-                            particle.i86 = particle.current_reef_idx
-                            particle.ts86 = particle.current_reef_ts0
-                            particle.dt86 = particle.current_reef_ts
-                        elif particle.e_num == 87:
-                            particle.i87 = particle.current_reef_idx
-                            particle.ts87 = particle.current_reef_ts0
-                            particle.dt87 = particle.current_reef_ts
-                        elif particle.e_num == 88:
-                            particle.i88 = particle.current_reef_idx
-                            particle.ts88 = particle.current_reef_ts0
-                            particle.dt88 = particle.current_reef_ts
-                        elif particle.e_num == 89:
-                            particle.i89 = particle.current_reef_idx
-                            particle.ts89 = particle.current_reef_ts0
-                            particle.dt89 = particle.current_reef_ts
-                        elif particle.e_num == 90:
-                            particle.i90 = particle.current_reef_idx
-                            particle.ts90 = particle.current_reef_ts0
-                            particle.dt90 = particle.current_reef_ts
-                        elif particle.e_num == 91:
-                            particle.i91 = particle.current_reef_idx
-                            particle.ts91 = particle.current_reef_ts0
-                            particle.dt91 = particle.current_reef_ts
-                        elif particle.e_num == 92:
-                            particle.i92 = particle.current_reef_idx
-                            particle.ts92 = particle.current_reef_ts0
-                            particle.dt92 = particle.current_reef_ts
-                        elif particle.e_num == 93:
-                            particle.i93 = particle.current_reef_idx
-                            particle.ts93 = particle.current_reef_ts0
-                            particle.dt93 = particle.current_reef_ts
-                        elif particle.e_num == 94:
-                            particle.i94 = particle.current_reef_idx
-                            particle.ts94 = particle.current_reef_ts0
-                            particle.dt94 = particle.current_reef_ts
-                        elif particle.e_num == 95:
-                            particle.i95 = particle.current_reef_idx
-                            particle.ts95 = particle.current_reef_ts0
-                            particle.dt95 = particle.current_reef_ts
-                        elif particle.e_num == 96:
-                            particle.i96 = particle.current_reef_idx
-                            particle.ts96 = particle.current_reef_ts0
-                            particle.dt96 = particle.current_reef_ts
-                        elif particle.e_num == 97:
-                            particle.i97 = particle.current_reef_idx
-                            particle.ts97 = particle.current_reef_ts0
-                            particle.dt97 = particle.current_reef_ts
-                        elif particle.e_num == 98:
-                            particle.i98 = particle.current_reef_idx
-                            particle.ts98 = particle.current_reef_ts0
-                            particle.dt98 = particle.current_reef_ts
-                        elif particle.e_num == 99:
-                            particle.i99 = particle.current_reef_idx
-                            particle.ts99 = particle.current_reef_ts0
-                            particle.dt99 = particle.current_reef_ts
-                        elif particle.e_num == 100:
-                            particle.i100 = particle.current_reef_idx
-                            particle.ts100 = particle.current_reef_ts0
-                            particle.dt100 = particle.current_reef_ts
-                        elif particle.e_num == 101:
-                            particle.i101 = particle.current_reef_idx
-                            particle.ts101 = particle.current_reef_ts0
-                            particle.dt101 = particle.current_reef_ts
-                        elif particle.e_num == 102:
-                            particle.i102 = particle.current_reef_idx
-                            particle.ts102 = particle.current_reef_ts0
-                            particle.dt102 = particle.current_reef_ts
-                        elif particle.e_num == 103:
-                            particle.i103 = particle.current_reef_idx
-                            particle.ts103 = particle.current_reef_ts0
-                            particle.dt103 = particle.current_reef_ts
-                        elif particle.e_num == 104:
-                            particle.i104 = particle.current_reef_idx
-                            particle.ts104 = particle.current_reef_ts0
-                            particle.dt104 = particle.current_reef_ts
-                        elif particle.e_num == 105:
-                            particle.i105 = particle.current_reef_idx
-                            particle.ts105 = particle.current_reef_ts0
-                            particle.dt105 = particle.current_reef_ts
-                        elif particle.e_num == 106:
-                            particle.i106 = particle.current_reef_idx
-                            particle.ts106 = particle.current_reef_ts0
-                            particle.dt106 = particle.current_reef_ts
-                        elif particle.e_num == 107:
-                            particle.i107 = particle.current_reef_idx
-                            particle.ts107 = particle.current_reef_ts0
-                            particle.dt107 = particle.current_reef_ts
-                        elif particle.e_num == 108:
-                            particle.i108 = particle.current_reef_idx
-                            particle.ts108 = particle.current_reef_ts0
-                            particle.dt108 = particle.current_reef_ts
-                        elif particle.e_num == 109:
-                            particle.i109 = particle.current_reef_idx
-                            particle.ts109 = particle.current_reef_ts0
-                            particle.dt109 = particle.current_reef_ts
-                        elif particle.e_num == 110:
-                            particle.i110 = particle.current_reef_idx
-                            particle.ts110 = particle.current_reef_ts0
-                            particle.dt110 = particle.current_reef_ts
-                        elif particle.e_num == 111:
-                            particle.i111 = particle.current_reef_idx
-                            particle.ts111 = particle.current_reef_ts0
-                            particle.dt111 = particle.current_reef_ts
-                        elif particle.e_num == 112:
-                            particle.i112 = particle.current_reef_idx
-                            particle.ts112 = particle.current_reef_ts0
-                            particle.dt112 = particle.current_reef_ts
-                        elif particle.e_num == 113:
-                            particle.i113 = particle.current_reef_idx
-                            particle.ts113 = particle.current_reef_ts0
-                            particle.dt113 = particle.current_reef_ts
-                        elif particle.e_num == 114:
-                            particle.i114 = particle.current_reef_idx
-                            particle.ts114 = particle.current_reef_ts0
-                            particle.dt114 = particle.current_reef_ts
-                        elif particle.e_num == 115:
-                            particle.i115 = particle.current_reef_idx
-                            particle.ts115 = particle.current_reef_ts0
-                            particle.dt115 = particle.current_reef_ts
-                        elif particle.e_num == 116:
-                            particle.i116 = particle.current_reef_idx
-                            particle.ts116 = particle.current_reef_ts0
-                            particle.dt116 = particle.current_reef_ts
-                        elif particle.e_num == 117:
-                            particle.i117 = particle.current_reef_idx
-                            particle.ts117 = particle.current_reef_ts0
-                            particle.dt117 = particle.current_reef_ts
-                        elif particle.e_num == 118:
-                            particle.i118 = particle.current_reef_idx
-                            particle.ts118 = particle.current_reef_ts0
-                            particle.dt118 = particle.current_reef_ts
-                        elif particle.e_num == 119:
-                            particle.i119 = particle.current_reef_idx
-                            particle.ts119 = particle.current_reef_ts0
-                            particle.dt119 = particle.current_reef_ts
-                        elif particle.e_num == 120:
-                            particle.i120 = particle.current_reef_idx
-                            particle.ts120 = particle.current_reef_ts0
-                            particle.dt120 = particle.current_reef_ts
-                        elif particle.e_num == 121:
-                            particle.i121 = particle.current_reef_idx
-                            particle.ts121 = particle.current_reef_ts0
-                            particle.dt121 = particle.current_reef_ts
-                        elif particle.e_num == 122:
-                            particle.i122 = particle.current_reef_idx
-                            particle.ts122 = particle.current_reef_ts0
-                            particle.dt122 = particle.current_reef_ts
-                        elif particle.e_num == 123:
-                            particle.i123 = particle.current_reef_idx
-                            particle.ts123 = particle.current_reef_ts0
-                            particle.dt123 = particle.current_reef_ts
-                        elif particle.e_num == 124:
-                            particle.i124 = particle.current_reef_idx
-                            particle.ts124 = particle.current_reef_ts0
-                            particle.dt124 = particle.current_reef_ts
-                        elif particle.e_num == 125:
-                            particle.i125 = particle.current_reef_idx
-                            particle.ts125 = particle.current_reef_ts0
-                            particle.dt125 = particle.current_reef_ts
-                        elif particle.e_num == 126:
-                            particle.i126 = particle.current_reef_idx
-                            particle.ts126 = particle.current_reef_ts0
-                            particle.dt126 = particle.current_reef_ts
-                        elif particle.e_num == 127:
-                            particle.i127 = particle.current_reef_idx
-                            particle.ts127 = particle.current_reef_ts0
-                            particle.dt127 = particle.current_reef_ts
-                        elif particle.e_num == 128:
-                            particle.i128 = particle.current_reef_idx
-                            particle.ts128 = particle.current_reef_ts0
-                            particle.dt128 = particle.current_reef_ts
-                        elif particle.e_num == 129:
-                            particle.i129 = particle.current_reef_idx
-                            particle.ts129 = particle.current_reef_ts0
-                            particle.dt129 = particle.current_reef_ts
-                        elif particle.e_num == 130:
-                            particle.i130 = particle.current_reef_idx
-                            particle.ts130 = particle.current_reef_ts0
-                            particle.dt130 = particle.current_reef_ts
-                        elif particle.e_num == 131:
-                            particle.i131 = particle.current_reef_idx
-                            particle.ts131 = particle.current_reef_ts0
-                            particle.dt131 = particle.current_reef_ts
-                        elif particle.e_num == 132:
-                            particle.i132 = particle.current_reef_idx
-                            particle.ts132 = particle.current_reef_ts0
-                            particle.dt132 = particle.current_reef_ts
-                        elif particle.e_num == 133:
-                            particle.i133 = particle.current_reef_idx
-                            particle.ts133 = particle.current_reef_ts0
-                            particle.dt133 = particle.current_reef_ts
-                        elif particle.e_num == 134:
-                            particle.i134 = particle.current_reef_idx
-                            particle.ts134 = particle.current_reef_ts0
-                            particle.dt134 = particle.current_reef_ts
-                        elif particle.e_num == 135:
-                            particle.i135 = particle.current_reef_idx
-                            particle.ts135 = particle.current_reef_ts0
-                            particle.dt135 = particle.current_reef_ts
-                        elif particle.e_num == 136:
-                            particle.i136 = particle.current_reef_idx
-                            particle.ts136 = particle.current_reef_ts0
-                            particle.dt136 = particle.current_reef_ts
-                        elif particle.e_num == 137:
-                            particle.i137 = particle.current_reef_idx
-                            particle.ts137 = particle.current_reef_ts0
-                            particle.dt137 = particle.current_reef_ts
-                        elif particle.e_num == 138:
-                            particle.i138 = particle.current_reef_idx
-                            particle.ts138 = particle.current_reef_ts0
-                            particle.dt138 = particle.current_reef_ts
-                        elif particle.e_num == 139:
-                            particle.i139 = particle.current_reef_idx
-                            particle.ts139 = particle.current_reef_ts0
-                            particle.dt139 = particle.current_reef_ts
-                        elif particle.e_num == 140:
-                            particle.i140 = particle.current_reef_idx
-                            particle.ts140 = particle.current_reef_ts0
-                            particle.dt140 = particle.current_reef_ts
-                        elif particle.e_num == 141:
-                            particle.i141 = particle.current_reef_idx
-                            particle.ts141 = particle.current_reef_ts0
-                            particle.dt141 = particle.current_reef_ts
-                        elif particle.e_num == 142:
-                            particle.i142 = particle.current_reef_idx
-                            particle.ts142 = particle.current_reef_ts0
-                            particle.dt142 = particle.current_reef_ts
-                        elif particle.e_num == 143:
-                            particle.i143 = particle.current_reef_idx
-                            particle.ts143 = particle.current_reef_ts0
-                            particle.dt143 = particle.current_reef_ts
-                        elif particle.e_num == 144:
-                            particle.i144 = particle.current_reef_idx
-                            particle.ts144 = particle.current_reef_ts0
-                            particle.dt144 = particle.current_reef_ts
-                        elif particle.e_num == 145:
-                            particle.i145 = particle.current_reef_idx
-                            particle.ts145 = particle.current_reef_ts0
-                            particle.dt145 = particle.current_reef_ts
-                        elif particle.e_num == 146:
-                            particle.i146 = particle.current_reef_idx
-                            particle.ts146 = particle.current_reef_ts0
-                            particle.dt146 = particle.current_reef_ts
-                        elif particle.e_num == 147:
-                            particle.i147 = particle.current_reef_idx
-                            particle.ts147 = particle.current_reef_ts0
-                            particle.dt147 = particle.current_reef_ts
-                        elif particle.e_num == 148:
-                            particle.i148 = particle.current_reef_idx
-                            particle.ts148 = particle.current_reef_ts0
-                            particle.dt148 = particle.current_reef_ts
-                        elif particle.e_num == 149:
-                            particle.i149 = particle.current_reef_idx
-                            particle.ts149 = particle.current_reef_ts0
-                            particle.dt149 = particle.current_reef_ts
-                        elif particle.e_num == 150:
-                            particle.i150 = particle.current_reef_idx
-                            particle.ts150 = particle.current_reef_ts0
-                            particle.dt150 = particle.current_reef_ts
-                        elif particle.e_num == 151:
-                            particle.i151 = particle.current_reef_idx
-                            particle.ts151 = particle.current_reef_ts0
-                            particle.dt151 = particle.current_reef_ts
-                        elif particle.e_num == 152:
-                            particle.i152 = particle.current_reef_idx
-                            particle.ts152 = particle.current_reef_ts0
-                            particle.dt152 = particle.current_reef_ts
-                        elif particle.e_num == 153:
-                            particle.i153 = particle.current_reef_idx
-                            particle.ts153 = particle.current_reef_ts0
-                            particle.dt153 = particle.current_reef_ts
-                        elif particle.e_num == 154:
-                            particle.i154 = particle.current_reef_idx
-                            particle.ts154 = particle.current_reef_ts0
-                            particle.dt154 = particle.current_reef_ts
-                        elif particle.e_num == 155:
-                            particle.i155 = particle.current_reef_idx
-                            particle.ts155 = particle.current_reef_ts0
-                            particle.dt155 = particle.current_reef_ts
-                        elif particle.e_num == 156:
-                            particle.i156 = particle.current_reef_idx
-                            particle.ts156 = particle.current_reef_ts0
-                            particle.dt156 = particle.current_reef_ts
-                        elif particle.e_num == 157:
-                            particle.i157 = particle.current_reef_idx
-                            particle.ts157 = particle.current_reef_ts0
-                            particle.dt157 = particle.current_reef_ts
-                        elif particle.e_num == 158:
-                            particle.i158 = particle.current_reef_idx
-                            particle.ts158 = particle.current_reef_ts0
-                            particle.dt158 = particle.current_reef_ts
-                        elif particle.e_num == 159:
-                            particle.i159 = particle.current_reef_idx
-                            particle.ts159 = particle.current_reef_ts0
-                            particle.dt159 = particle.current_reef_ts
-                        elif particle.e_num == 160:
-                            particle.i160 = particle.current_reef_idx
-                            particle.ts160 = particle.current_reef_ts0
-                            particle.dt160 = particle.current_reef_ts
-                        elif particle.e_num == 161:
-                            particle.i161 = particle.current_reef_idx
-                            particle.ts161 = particle.current_reef_ts0
-                            particle.dt161 = particle.current_reef_ts
-                        elif particle.e_num == 162:
-                            particle.i162 = particle.current_reef_idx
-                            particle.ts162 = particle.current_reef_ts0
-                            particle.dt162 = particle.current_reef_ts
-                        elif particle.e_num == 163:
-                            particle.i163 = particle.current_reef_idx
-                            particle.ts163 = particle.current_reef_ts0
-                            particle.dt163 = particle.current_reef_ts
-                        elif particle.e_num == 164:
-                            particle.i164 = particle.current_reef_idx
-                            particle.ts164 = particle.current_reef_ts0
-                            particle.dt164 = particle.current_reef_ts
-                        elif particle.e_num == 165:
-                            particle.i165 = particle.current_reef_idx
-                            particle.ts165 = particle.current_reef_ts0
-                            particle.dt165 = particle.current_reef_ts
-                        elif particle.e_num == 166:
-                            particle.i166 = particle.current_reef_idx
-                            particle.ts166 = particle.current_reef_ts0
-                            particle.dt166 = particle.current_reef_ts
-                        elif particle.e_num == 167:
-                            particle.i167 = particle.current_reef_idx
-                            particle.ts167 = particle.current_reef_ts0
-                            particle.dt167 = particle.current_reef_ts
-                        elif particle.e_num == 168:
-                            particle.i168 = particle.current_reef_idx
-                            particle.ts168 = particle.current_reef_ts0
-                            particle.dt168 = particle.current_reef_ts
-                        elif particle.e_num == 169:
-                            particle.i169 = particle.current_reef_idx
-                            particle.ts169 = particle.current_reef_ts0
-                            particle.dt169 = particle.current_reef_ts
-                        elif particle.e_num == 170:
-                            particle.i170 = particle.current_reef_idx
-                            particle.ts170 = particle.current_reef_ts0
-                            particle.dt170 = particle.current_reef_ts
-                        elif particle.e_num == 171:
-                            particle.i171 = particle.current_reef_idx
-                            particle.ts171 = particle.current_reef_ts0
-                            particle.dt171 = particle.current_reef_ts
-                        elif particle.e_num == 172:
-                            particle.i172 = particle.current_reef_idx
-                            particle.ts172 = particle.current_reef_ts0
-                            particle.dt172 = particle.current_reef_ts
-                        elif particle.e_num == 173:
-                            particle.i173 = particle.current_reef_idx
-                            particle.ts173 = particle.current_reef_ts0
-                            particle.dt173 = particle.current_reef_ts
-                        elif particle.e_num == 174:
-                            particle.i174 = particle.current_reef_idx
-                            particle.ts174 = particle.current_reef_ts0
-                            particle.dt174 = particle.current_reef_ts
-                        elif particle.e_num == 175:
-                            particle.i175 = particle.current_reef_idx
-                            particle.ts175 = particle.current_reef_ts0
-                            particle.dt175 = particle.current_reef_ts
-                        elif particle.e_num == 176:
-                            particle.i176 = particle.current_reef_idx
-                            particle.ts176 = particle.current_reef_ts0
-                            particle.dt176 = particle.current_reef_ts
-                        elif particle.e_num == 177:
-                            particle.i177 = particle.current_reef_idx
-                            particle.ts177 = particle.current_reef_ts0
-                            particle.dt177 = particle.current_reef_ts
-                        elif particle.e_num == 178:
-                            particle.i178 = particle.current_reef_idx
-                            particle.ts178 = particle.current_reef_ts0
-                            particle.dt178 = particle.current_reef_ts
-                        elif particle.e_num == 179:
-                            particle.i179 = particle.current_reef_idx
-                            particle.ts179 = particle.current_reef_ts0
-                            particle.dt179 = particle.current_reef_ts
-                        elif particle.e_num == 180:
-                            particle.i180 = particle.current_reef_idx
-                            particle.ts180 = particle.current_reef_ts0
-                            particle.dt180 = particle.current_reef_ts
-                        elif particle.e_num == 181:
-                            particle.i181 = particle.current_reef_idx
-                            particle.ts181 = particle.current_reef_ts0
-                            particle.dt181 = particle.current_reef_ts
-                        elif particle.e_num == 182:
-                            particle.i182 = particle.current_reef_idx
-                            particle.ts182 = particle.current_reef_ts0
-                            particle.dt182 = particle.current_reef_ts
-                        elif particle.e_num == 183:
-                            particle.i183 = particle.current_reef_idx
-                            particle.ts183 = particle.current_reef_ts0
-                            particle.dt183 = particle.current_reef_ts
-                        elif particle.e_num == 184:
-                            particle.i184 = particle.current_reef_idx
-                            particle.ts184 = particle.current_reef_ts0
-                            particle.dt184 = particle.current_reef_ts
-                        elif particle.e_num == 185:
-                            particle.i185 = particle.current_reef_idx
-                            particle.ts185 = particle.current_reef_ts0
-                            particle.dt185 = particle.current_reef_ts
-                        elif particle.e_num == 186:
-                            particle.i186 = particle.current_reef_idx
-                            particle.ts186 = particle.current_reef_ts0
-                            particle.dt186 = particle.current_reef_ts
-                        elif particle.e_num == 187:
-                            particle.i187 = particle.current_reef_idx
-                            particle.ts187 = particle.current_reef_ts0
-                            particle.dt187 = particle.current_reef_ts
-                        elif particle.e_num == 188:
-                            particle.i188 = particle.current_reef_idx
-                            particle.ts188 = particle.current_reef_ts0
-                            particle.dt188 = particle.current_reef_ts
-                        elif particle.e_num == 189:
-                            particle.i189 = particle.current_reef_idx
-                            particle.ts189 = particle.current_reef_ts0
-                            particle.dt189 = particle.current_reef_ts
-                        elif particle.e_num == 190:
-                            particle.i190 = particle.current_reef_idx
-                            particle.ts190 = particle.current_reef_ts0
-                            particle.dt190 = particle.current_reef_ts
-                        elif particle.e_num == 191:
-                            particle.i191 = particle.current_reef_idx
-                            particle.ts191 = particle.current_reef_ts0
-                            particle.dt191 = particle.current_reef_ts
-                        elif particle.e_num == 192:
-                            particle.i192 = particle.current_reef_idx
-                            particle.ts192 = particle.current_reef_ts0
-                            particle.dt192 = particle.current_reef_ts
-                        elif particle.e_num == 193:
-                            particle.i193 = particle.current_reef_idx
-                            particle.ts193 = particle.current_reef_ts0
-                            particle.dt193 = particle.current_reef_ts
-                        elif particle.e_num == 194:
-                            particle.i194 = particle.current_reef_idx
-                            particle.ts194 = particle.current_reef_ts0
-                            particle.dt194 = particle.current_reef_ts
-                        elif particle.e_num == 195:
-                            particle.i195 = particle.current_reef_idx
-                            particle.ts195 = particle.current_reef_ts0
-                            particle.dt195 = particle.current_reef_ts
-                        elif particle.e_num == 196:
-                            particle.i196 = particle.current_reef_idx
-                            particle.ts196 = particle.current_reef_ts0
-                            particle.dt196 = particle.current_reef_ts
-                        elif particle.e_num == 197:
-                            particle.i197 = particle.current_reef_idx
-                            particle.ts197 = particle.current_reef_ts0
-                            particle.dt197 = particle.current_reef_ts
-                        elif particle.e_num == 198:
-                            particle.i198 = particle.current_reef_idx
-                            particle.ts198 = particle.current_reef_ts0
-                            particle.dt198 = particle.current_reef_ts
-                        elif particle.e_num == 199:
-                            particle.i199 = particle.current_reef_idx
-                            particle.ts199 = particle.current_reef_ts0
-                            particle.dt199 = particle.current_reef_ts
 
                             particle.delete() # Delete particle, since no more reefs can be saved
 
@@ -2988,6 +2392,7 @@ class Experiment():
 
             self.cfg['dt'] = int(nc.timestep_seconds)/86400
             self.cfg['lpc'] = int(nc.larvae_per_cell)
+            self.cfg['partitions'] = int(nc.partitions)
 
             if self.cfg['subset']:
                 if self.cfg['lpc']/self.cfg['subset'] < 16:
@@ -3005,7 +2410,12 @@ class Experiment():
         t0_list = []
 
         for fh in fh_list:
-            y0 = int(fh.split('/')[-1].split('_')[-5])
+            with Dataset(fh, mode='r') as nc:
+                try:
+                    y0 = int(nc.release_year)
+                except:
+                    continue
+
             t0_list.append(y0)
 
         t0_list = np.array(t0_list)
@@ -3014,7 +2424,7 @@ class Experiment():
         root_y = t0_list.min()
 
         if 'partitions' not in self.cfg:
-            self.cfg['partitions'] = 1
+            raise Exception('Number of partitions not found.')
 
         if self.cfg['rpm']*self.cfg['partitions']*n_months != len(fh_list):
             print('Warning: there is an unexpected number of files!')
@@ -3025,28 +2435,41 @@ class Experiment():
             print(str(len(fh_list)) + ' files found')
 
         # Get a list of group IDs
-        reef_mask = (self.fields['rc'] > 0)
+        source_reef_mask = (self.fields['rc'] > 0)
+        sink_reef_mask = (self.fields['rc'] > 0)
 
-        for filter_name in kwargs['filters'].keys():
-            reef_mask *= np.isin(self.fields[filter_name], kwargs['filters'][filter_name])
+        if 'source_filters' in kwargs:
+            for filter_name in kwargs['source_filters'].keys():
+                source_reef_mask *= np.isin(self.fields[filter_name], kwargs['source_filters'][filter_name])
 
-        grp_list = np.unique(np.ma.masked_where(reef_mask == 0, self.fields['grp'])).compressed()
-        grp_bnds = np.append(grp_list, grp_list[-1]+1)-0.5
-        grp_num = len(grp_list)
+        if 'sink_filters' in kwargs:
+            for filter_name in kwargs['sink_filters'].keys():
+                sink_reef_mask *= np.isin(self.fields[filter_name], kwargs['sink_filters'][filter_name])
+
+        source_grp_list = np.unique(np.ma.masked_where(source_reef_mask == 0, self.fields['grp'])).compressed()
+        source_grp_bnds = np.append(source_grp_list, source_grp_list[-1]+1)-0.5
+        source_grp_num = len(source_grp_list)
+
+        sink_grp_list = np.unique(np.ma.masked_where(sink_reef_mask == 0, self.fields['grp'])).compressed()
+        sink_grp_bnds = np.append(sink_grp_list, sink_grp_list[-1]+1)-0.5
+        sink_grp_num = len(sink_grp_list)
 
         # Set up matrices
         if not self.cfg['e_num_limit']:
-            p_matrix = np.zeros((grp_num, grp_num, n_months), dtype=np.float32) # For probability (ij)
+            p_matrix = np.zeros((source_grp_num, sink_grp_num, n_months), dtype=np.float32) # For probability (ij)
         else:
             e_num_lim_num = len(self.cfg['e_num_limit_array'])
-            p_matrix = np.zeros((grp_num, grp_num, n_months, e_num_lim_num), dtype=np.float32) # For probability (ij)
+            p_matrix = np.zeros((source_grp_num, sink_grp_num, n_months, e_num_lim_num), dtype=np.float32) # For probability (ij)
 
         f_matrix = np.zeros_like(p_matrix, dtype=np.float32) # For flux (ij)
         t_matrix = np.zeros_like(p_matrix, dtype=np.float32) # For transit time (ij)
 
         for fhi, fh in tqdm(enumerate(fh_list), total=len(fh_list)):
             with Dataset(fh, mode='r') as nc:
-                pid = nc.variables['trajectory'][:] # Trajectory ID
+                try:
+                    pid = nc.variables['trajectory'][:] # Trajectory ID
+                except:
+                    continue
 
                 # Filter IDs
                 if self.cfg['subset']:
@@ -3054,16 +2477,16 @@ class Experiment():
                 else:
                     sub_id = np.arange(len(pid))
 
-                n_traj = np.shape( nc.variables['e_num'][:][sub_id])[0] # Number of trajectories in file/subset
+                n_traj = np.shape(nc.variables['e_num'][:][sub_id])[0] # Number of trajectories in file/subset
 
                 if not n_traj:
                     # Skip if there are no trajectories stored in file
                     continue
 
                 # Extract origin date from filename
-                y0 = int(fh.split('/')[-1].split('_')[-5])
-                m0 = int(fh.split('/')[-1].split('_')[-4])
-                d0 = int(fh.split('/')[-1].split('_')[-3].split('.')[0])
+                y0 = int(nc.release_year)
+                m0 = int(nc.release_month)
+                d0 = int(nc.release_day)
                 assert y0 < 2025 and y0 > 1990
                 assert m0 < 13 and m0 > 0
                 assert d0 < 32 and d0 > 0
@@ -3177,17 +2600,17 @@ class Experiment():
                 cpg0_array[:] = translate(grp0, self.dicts['grp_numcell'])
                 cpg0_array = np.ma.masked_array(cpg0_array, mask=mask).compressed()
 
-                filter_mask = 1-np.isin(grp_array, grp_list)*np.isin(grp0_array, grp_list)
+                filter_mask = 1-np.isin(grp0_array, source_grp_list)*np.isin(grp0_array, sink_grp_list)
                 grp_i_array = np.ma.masked_array(grp0_array, mask=filter_mask).compressed()
                 grp_j_array = np.ma.masked_array(grp_array, mask=filter_mask).compressed()
                 rc_i_array = np.ma.masked_array(rc0_array, mask=filter_mask).compressed()
-                cpg_i_array = np.ma.masked_array(cpg0_array, mask=filter_mask).compressed()
+                cpg_i_array = np.ma.masked_array(cpg0_array, mask=filter_mask).compressed().astype(np.float32)
                 ns_ij_array = np.ma.masked_array(ns_array, mask=filter_mask).compressed()
                 t0_ij_array = np.ma.masked_array(t0_array, mask=filter_mask).compressed()
                 dt_j_array = np.ma.masked_array(dt_array, mask=filter_mask).compressed()
 
                 p_matrix_weights = ns_ij_array/(self.cfg['lpc']*self.cfg['rpm']*cpg_i_array)
-                f_matrix_weights = ns_ij_array*rc_i_array*self.cfg['ldens']/(self.cfg['rpm']*self.cfg['lpc'])
+                f_matrix_weights = ns_ij_array*rc_i_array*self.cfg['ldens']
                 t_matrix_weights = f_matrix_weights*(self.cfg['tc'] + t0_ij_array + 0.5*dt_j_array)
 
                 # Find time index
@@ -3208,21 +2631,36 @@ class Experiment():
                 #              Note that this is the flux-weighted time mean
                 #              t0 + dt: time taken for larva to travel from i to j
 
-                p_matrix[:, :, ti] += np.histogram2d(grp_j_array, grp_i_array,
-                                                     bins=[grp_bnds, grp_bnds],
+                p_matrix[:, :, ti] += np.histogram2d(grp_i_array, grp_j_array,
+                                                     bins=[source_grp_bnds, sink_grp_bnds],
                                                      weights=p_matrix_weights)[0]
 
-                f_matrix[:, :, ti] += np.histogram2d(grp_j_array, grp_i_array,
-                                                     bins=[grp_bnds, grp_bnds],
+                f_matrix[:, :, ti] += np.histogram2d(grp_i_array, grp_j_array,
+                                                     bins=[source_grp_bnds, sink_grp_bnds],
                                                      weights=f_matrix_weights)[0]
 
                 # Note that this is just the top half of the fraction - normalise
                 # further down the pipeline
 
-                t_matrix[:, :, ti] += np.histogram2d(grp_j_array, grp_i_array,
-                                                     bins=[grp_bnds, grp_bnds],
+                t_matrix[:, :, ti] += np.histogram2d(grp_i_array, grp_j_array,
+                                                     bins=[source_grp_bnds, sink_grp_bnds],
                                                      weights=t_matrix_weights)[0]
-                print()
+
+                # Now convert to xarray
+                matrix = xr.Dataset(data_vars=dict(probability=(['source_group', 'sink_group', 'time'], p_matrix),
+                                                   flux=(['source_group', 'sink_group', 'time'], f_matrix),
+                                                   flux_time=(['source_group', 'sink_group', 'time'], t_matrix)),
+                                    coords=dict(source_group=source_grp_list, sink_group=sink_grp_list,
+                                                time=pd.date_range(start=datetime(year=root_y, month=1, day=1, hour=0),
+                                                                   periods=n_months, freq='M')),
+                                    attrs=dict(a=self.cfg['a'],
+                                               b=self.cfg['b'],
+                                               tc=self.cfg['tc'],
+                                               μs=self.cfg['μs'],
+                                               σ=self.cfg['σ'],
+                                               λ=self.cfg['λ'],
+                                               ν=self.cfg['ν'],
+                                               configuration=self.cfg['preset']))
 
             else:
                 ns_array = np.ma.masked_array(ns_array, mask=mask)
@@ -3253,7 +2691,7 @@ class Experiment():
                 ti = m0 + (y0 - root_y)*12 - 1
 
                 for i, lim in enumerate(self.cfg['e_num_limit_array']):
-                    filter_mask = 1-np.isin(grp_array[:, :lim], grp_list)*np.isin(grp0_array[:, :lim], grp_list)
+                    filter_mask = 1-np.isin(grp_array[:, :lim], sink_grp_list)*np.isin(grp0_array[:, :lim], source_grp_list)
                     grp_i_array = np.ma.masked_array(grp0_array[:, :lim], mask=filter_mask).compressed()
                     grp_j_array = np.ma.masked_array(grp_array[:, :lim], mask=filter_mask).compressed()
                     rc_i_array = np.ma.masked_array(rc0_array[:, :lim], mask=filter_mask).compressed()
@@ -3267,26 +2705,38 @@ class Experiment():
                     t_matrix_weights = f_matrix_weights*(self.cfg['tc'] + t0_ij_array + 0.5*dt_j_array)
 
 
-                    p_matrix[:, :, ti, i] += np.histogram2d(grp_j_array, grp_i_array,
-                                                            bins=[grp_bnds, grp_bnds],
+                    p_matrix[:, :, ti, i] += np.histogram2d(grp_i_array, grp_j_array,
+                                                            bins=[source_grp_bnds, sink_grp_bnds],
                                                             weights=p_matrix_weights)[0]
 
-                    f_matrix[:, :, ti, i] += np.histogram2d(grp_j_array, grp_i_array,
-                                                            bins=[grp_bnds, grp_bnds],
+                    f_matrix[:, :, ti, i] += np.histogram2d(grp_i_array, grp_j_array,
+                                                            bins=[source_grp_bnds, sink_grp_bnds],
                                                             weights=f_matrix_weights)[0]
 
                     # Note that this is just the top half of the fraction - normalise
                     # further down the pipeline
 
-                    t_matrix[:, :, ti, i] += np.histogram2d(grp_j_array, grp_i_array,
-                                                            bins=[grp_bnds, grp_bnds],
+                    t_matrix[:, :, ti, i] += np.histogram2d(grp_i_array, grp_j_array,
+                                                            bins=[source_grp_bnds, sink_grp_bnds],
                                                             weights=t_matrix_weights)[0]
 
-        return [p_matrix, f_matrix, t_matrix, matrix_t_axis]
+                # Now convert to xarray
+                matrix = xr.Dataset(data_vars=dict(probability=(['source_group', 'sink_group', 'time', 'subset'], p_matrix),
+                                                   flux=(['source_group', 'sink_group', 'time', 'subset'], f_matrix),
+                                                   flux_time=(['source_group', 'sink_group', 'time', 'subset'], t_matrix)),
+                                    coords=dict(source_group=source_grp_list, sink_group=sink_grp_list,
+                                                time=pd.date_range(start=datetime(year=root_y, month=1, day=1, hour=0),
+                                                                   periods=n_months, freq='M'),
+                                                subset=self.cfg['e_num_limit_array']),
+                                    attrs=dict(a=self.cfg['a'],
+                                               b=self.cfg['b'],
+                                               tc=self.cfg['tc'],
+                                               μs=self.cfg['μs'],
+                                               σ=self.cfg['σ'],
+                                               λ=self.cfg['λ'],
+                                               ν=self.cfg['ν'],
+                                               configuration=self.cfg['preset']))
+
+        return matrix
 
         self.status['matrix'] = True
-
-
-
-
-
