@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Script to plot connectivity statistics for the Aldabra release run
+@author: Noam Vogt-Vincent
+"""
+
+import os
+import xarray as xr
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+import cmasher as cmr
+import matplotlib.ticker as mticker
+import matplotlib.colors as colors
+from matplotlib.gridspec import GridSpec
+from datetime import timedelta
+
+##############################################################################
+# DEFINE INPUT FILES                                                         #
+##############################################################################
+
+# PARAMETERS
+parameters = {# Competency parameters
+              'a': 1/timedelta(days=5.6).total_seconds(),    # Rate of competency acquisition (1/s)
+              'b': 1/timedelta(days=20).total_seconds(),     # Rate of competency loss (1/s)
+              'tc': timedelta(days=3.2).total_seconds(),     # Minimum competency period (s)
+
+              # Settling parameters
+              'μs': 1/timedelta(days=1).total_seconds(),     # Settling rate (1/s)
+
+              # Mortality parameters
+              'σ': -0.09,                                    # GW shape parameter 1
+              'ν': 0.58,                                     # GW shape parameter 2
+              'λ': 1/timedelta(days=22.7).total_seconds(),}  # GW mortality rate parameter
+
+chosen_source = np.array([9, 10, 12, 13])
+
+# DIRECTORIES
+dirs = {}
+dirs['root'] = os.getcwd() + '/../'
+dirs['ref'] = dirs['root'] + 'REFERENCE/'
+dirs['grid'] = dirs['root'] + 'GRID_DATA/'
+dirs['fig'] = dirs['root'] + 'FIGURES/'
+dirs['traj'] = dirs['root'] + 'TRAJ/'
+dirs['output'] = dirs['root'] + 'MATRICES/'
+
+##############################################################################
+# LOAD FILES                                                                 #
+##############################################################################
+
+# Load the connectivity matrix
+matrix_fh = dirs['output'] + 'WINDS_connectivity_matrix.nc'
+matrix = xr.open_dataset(matrix_fh)
+
+# Load the coral grid
+grid_fh = dirs['grid'] + 'coral_grid.nc'
+grid = xr.open_dataset(grid_fh)
+
+# Load velocity data (for BG)
+ref_fh = dirs['ref'] + 'WINDS_sfc_spd_short_monclim.nc'
+ref = xr.open_dataset(ref_fh)
+
+##############################################################################
+# Calculate group statistics                                                 #
+##############################################################################
+
+df = pd.DataFrame(columns=['Latitude', 'Longitude', 'Probability mean',
+                           'Probability std', 'S2M'],
+                  index=matrix.sink_group.values)
+
+for group in matrix.sink_group.values:
+    y, x = np.where(grid['reef_grp_w'] == group)
+    df.loc[group, 'Latitude'] = grid.lat_rho_w[y].mean().values
+    df.loc[group, 'Longitude'] = grid.lon_rho_w[x].mean().values
+
+    # Find the mean probability (taking the mean across all valid sources for the particular sink, across all times)
+    df.loc[group, 'Probability mean'] = matrix['probability'].loc[matrix.source_group.isin(chosen_source), group, :].mean(dim=('source_group', 'time')).values
+
+    # Find the standard deviation probability (taking the mean across all valid sources for the particular sink, and the standard deviation across all times)
+    df.loc[group, 'Probability std'] = matrix['probability'].loc[matrix.source_group.isin(chosen_source), group, :].mean(dim=('source_group')).std(dim=('time')).values
+
+# Take the ratio of the standard deviation to the mean
+df['S2M'] = df['Probability std']/df['Probability mean']
+
+# Correct datatypes
+df['Probability mean'] = df['Probability mean'].astype(np.float32)
+df['Probability std'] = df['Probability mean'].astype(np.float32)
+df.replace(0, np.nan, inplace=True)
+df.dropna(axis=0, inplace=True)
+
+##############################################################################
+# Plot on a map                                                              #
+##############################################################################
+
+f = plt.figure(constrained_layout=True, figsize=(26.6, 15))
+gs = GridSpec(1, 2, figure=f, width_ratios=[1, 0.02])
+ax = []
+ax.append(f.add_subplot(gs[0, 0], projection = ccrs.PlateCarree())) # Main figure (connectivity)
+ax.append(f.add_subplot(gs[0, 1])) # Colorbar for main figure
+ax[0].set_xlim([37, 65])
+ax[0].set_ylim([-17, 0])
+
+data_crs = ccrs.PlateCarree()
+
+# Plot annual mean velocity
+ax[0].contourf(ref.lon, ref.lat, ref.speed.mean(dim='time_counter'),
+               levels=np.linspace(0, 2, 101), cmap=cmr.arctic_r, zorder=1)
+
+# Plot connectivity
+sizes = (np.log10(df['Probability mean'])+6)
+sizes[sizes < 0.5] = 0.5
+sizes = 150*(sizes**2)
+cx_plot = ax[0].scatter(df['Longitude'], df['Latitude'], s=sizes,
+                        c=df['Probability mean'], norm=colors.LogNorm(vmin=1e-9, vmax=1e-3),
+                        cmap=cmr.pepper, zorder=3)
+
+# Add land mask
+land_10m = cfeature.NaturalEarthFeature('physical', 'land', '10m', edgecolor='black',
+                                        facecolor='black', zorder=2)
+ax[0].add_feature(land_10m)
+
+# Add connecting lines
+source_coords = [46.35, -9.425]
+
+for group in df.index:
+    ax[0].plot([source_coords[0], df['Longitude'].loc[group]],
+               [source_coords[1], df['Latitude'].loc[group]], linestyle='-',
+               color='k', alpha=0.5, linewidth=sizes.loc[group]/300)
+
+# Add marker for Aldabra
+ax[0].scatter(source_coords[0], source_coords[1], s=500, marker='+', color='k',
+              zorder=10)
+ax[0].text(source_coords[0]+0.2, source_coords[1]+0.2, 'Aldabra', fontsize=24,
+           fontstyle='italic')
+
+# Add grid
+gl = ax[0].gridlines(crs=ccrs.PlateCarree(), draw_labels=True,
+                     linewidth=0.5, color='k', linestyle='--', zorder=11)
+gl.xlocator = mticker.FixedLocator(np.arange(0, 100, 5))
+gl.ylocator = mticker.FixedLocator(np.arange(-40, 10, 5))
+gl.xlabels_top = False
+gl.ylabels_right = False
+gl.ylabel_style = {'size': 24}
+gl.xlabel_style = {'size': 24}
+
+# Add colorbar
+cb = plt.colorbar(cx_plot, cax=ax[1], fraction=0.1)
+cb.set_label('Connection probability', size=24)
+ax[1].tick_params(axis='y', labelsize=24)
+
+# Save
+plt.savefig(dirs['fig'] + 'Aldabra_presentation_connections.png', bbox_inches='tight', dpi=300)
+
+##############################################################################
+# Now create Seychelles-specific connectivity matrix                         #
+##############################################################################
+
+# Firstly truncate to Seychelles only
+# fmatrix = matrix['flux'].loc[:38, :38, :]
+
+# # Define the new order
+# grp_order = np.array([1, 3, 4, 5, 8, 11, 14, 15, 2, 6, 7, 9, 10, 12, 13, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 16, 22, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38])
+# fmatrix = fmatrix.reindex(source_group=grp_order, sink_group=grp_order).mean(dim='time')
+# fmatrix /= fmatrix.max()
+
+# # Plot the matrix
+# f = plt.figure(constrained_layout=True, figsize=(17, 15))
+# gs = GridSpec(1, 2, figure=f, width_ratios=[1, 0.04])
+# ax = []
+
+# ax.append(f.add_subplot(gs[0, 0])) # Main figure (connectivity)
+# ax.append(f.add_subplot(gs[0, 1])) # Colorbar for main figure
+
+# c_matrix = ax[0].pcolormesh(np.arange(39), np.arange(39), fmatrix.values, cmap=cmr.gem,
+#                             norm=colors.LogNorm(vmin=1e-9, vmax=1e0), shading='auto')
+
+# ax[0].set_aspect('equal', adjustable=None)
+# ax[0].set_xlim([0, 38])
+# ax[0].set_ylim([0, 38])
+# ax[0].set_xticks([])
+# ax[0].set_yticks([])
+
+# for axis in ['top','bottom','left','right']:
+#     ax[0].spines[axis].set_linewidth(2)
+#     ax[1].spines[axis].set_linewidth(2)
+
+# # Add dividers
+# for pos in [8, 15, 17, 26, 28, 38]:
+#     ax[0].plot(np.array([pos, pos]), np.array([0, 38]), '-', color='k', linewidth=2)
+#     ax[0].plot(np.array([0, 38]), np.array([pos, pos]), '-', color='k', linewidth=2)
+
+# # Add cbar
+# cb = plt.colorbar(c_matrix, cax=ax[1], fraction=0.1)
+# cb.set_label('Normalised larval flux', size=24)
+# ax[1].tick_params(axis='y', labelsize=24)
+
+
+
+
+
