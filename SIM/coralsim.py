@@ -790,6 +790,12 @@ class Experiment():
                                initial=0,
                                to_write=True)
 
+                # Active status
+                active = Variable('active',
+                                  dtype=np.uint8,
+                                  initial=1,
+                                  to_write=False)
+
                 ##################################################################
                 # PROVENANCE IDENTIFIERS #########################################
                 ##################################################################
@@ -880,6 +886,12 @@ class Experiment():
                                dtype=np.int32,
                                initial=0,
                                to_write=False)
+
+                # Active status
+                active = Variable('active',
+                                  dtype=np.uint8,
+                                  initial=1,
+                                  to_write=False)
 
                 ##################################################################
                 # PROVENANCE IDENTIFIERS #########################################
@@ -972,6 +984,12 @@ class Experiment():
                                initial=0,
                                to_write=False)
 
+                # Active status
+                active = Variable('active',
+                                  dtype=np.uint8,
+                                  initial=1,
+                                  to_write=False)
+
                 ##################################################################
                 # PROVENANCE IDENTIFIERS #########################################
                 ##################################################################
@@ -1053,37 +1071,86 @@ class Experiment():
             vis_mode = False
 
         if test and not vis_mode:
+            # STANDARD TEST KERNEL
             def event(particle, fieldset, time):
 
                 # 1 Keep track of the amount of time spent at sea
                 particle.ot += 1
 
-                # 2 Assess reef status
-                particle.idx = fieldset.idx[particle]
+                ###############################################################
+                # ACTIVE PARTICLES ONLY                                       #
+                ###############################################################
 
-                # TESTING ONLY ############################################
-                # Calculate current mortality rate
-                particle.mm = (fieldset.lam*fieldset.nu)*((fieldset.lam*particle.ot*particle.dt)**(fieldset.nu-1))/(1-fieldset.sig*((fieldset.lam*particle.ot*particle.dt)**fieldset.nu))
-                particle.L10 = particle.L1
-                particle.L20 = particle.L2
+                if particle.active:
 
-                particle.rf = fieldset.rf[particle]
-                ###########################################################
+                    # 2 Assess reef status
+                    particle.idx = fieldset.idx[particle]
 
-                save_event = False
-                new_event = False
+                    # TESTING ONLY ############################################
+                    # Calculate current mortality rate
+                    particle.mm = (fieldset.lam*fieldset.nu)*((fieldset.lam*particle.ot*particle.dt)**(fieldset.nu-1))/(1-fieldset.sig*((fieldset.lam*particle.ot*particle.dt)**fieldset.nu))
+                    particle.L10 = particle.L1
+                    particle.L20 = particle.L2
 
-                # 3 Trigger event cascade if larva is in a reef site and minimum competency has been reached
-                if particle.idx > 0 and particle.ot > fieldset.min_competency:
+                    particle.rf = fieldset.rf[particle]
+                    ###########################################################
 
-                    # Check if an event has already been triggered
-                    if particle.current_reef_ts > 0:
+                    save_event = False
+                    new_event = False
 
-                        # Check if we are in the same reef idx as the current event
-                        if particle.idx == particle.current_reef_idx:
+                    # 3 Trigger event cascade if larva is in a reef site and minimum competency has been reached
+                    if particle.idx > 0 and particle.ot > fieldset.min_competency:
 
-                            # If contiguous event, just add time and phi
-                            particle.current_reef_ts += 1
+                        # Check if an event has already been triggered
+                        if particle.current_reef_ts > 0:
+
+                            # Check if we are in the same reef idx as the current event
+                            if particle.idx == particle.current_reef_idx:
+
+                                # If contiguous event, just add time and phi
+                                particle.current_reef_ts += 1
+
+                                # TESTING ONLY ############################################
+                                particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
+                                particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm + fieldset.ms*particle.rf)*particle.L20)*particle.dt
+                                particle.Ns = particle.Ns + fieldset.ms*particle.rf*particle.L20*particle.dt
+                                ###########################################################
+
+                                # But also check that the particle isn't about to expire (save if so)
+                                # Otherwise particles hanging around reefs at the end of the simulation
+                                # won't get saved.
+
+                                if particle.ot > fieldset.max_age:
+                                    save_event = True
+
+                            else:
+
+                                # TESTING ONLY ############################################
+                                particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
+                                particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm + fieldset.ms*particle.rf)*particle.L20)*particle.dt
+                                particle.Ns = particle.Ns
+                                particle.Ns_next = fieldset.ms*particle.rf*particle.L20*particle.dt
+                                ###########################################################
+
+                                # Otherwise, we need to save the old event and create a new event
+                                save_event = True
+                                new_event = True
+
+                        else:
+
+                            # TESTING ONLY ############################################
+                            particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
+                            particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm + fieldset.ms*particle.rf)*particle.L20)*particle.dt
+                            particle.Ns_next = fieldset.ms*particle.rf*particle.L20*particle.dt
+                            ###########################################################
+
+                            # If event has not been triggered, create a new event
+                            new_event = True
+
+                    else:
+
+                        # Otherwise, check if ongoing event has just ended
+                        if particle.current_reef_ts > 0 and particle.ot > fieldset.min_competency:
 
                             # TESTING ONLY ############################################
                             particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
@@ -1091,232 +1158,190 @@ class Experiment():
                             particle.Ns = particle.Ns + fieldset.ms*particle.rf*particle.L20*particle.dt
                             ###########################################################
 
-                            # But also check that the particle isn't about to expire (save if so)
-                            # Otherwise particles hanging around reefs at the end of the simulation
-                            # won't get saved.
+                            save_event = True
 
-                            if particle.ot > fieldset.max_age:
-                                save_event = True
-
-                        else:
-
+                        elif particle.ot > fieldset.min_competency:
                             # TESTING ONLY ############################################
                             particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
-                            particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm + fieldset.ms*particle.rf)*particle.L20)*particle.dt
-                            particle.Ns = particle.Ns
-                            particle.Ns_next = fieldset.ms*particle.rf*particle.L20*particle.dt
+                            particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm)*particle.L20)*particle.dt
                             ###########################################################
 
-                            # Otherwise, we need to save the old event and create a new event
-                            save_event = True
-                            new_event = True
-
-                    else:
-
-                        # TESTING ONLY ############################################
-                        particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
-                        particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm + fieldset.ms*particle.rf)*particle.L20)*particle.dt
-                        particle.Ns_next = fieldset.ms*particle.rf*particle.L20*particle.dt
-                        ###########################################################
-
-                        # If event has not been triggered, create a new event
-                        new_event = True
-
-                else:
-
-                    # Otherwise, check if ongoing event has just ended
-                    if particle.current_reef_ts > 0 and particle.ot > fieldset.min_competency:
-
-                        # TESTING ONLY ############################################
-                        particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
-                        particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm + fieldset.ms*particle.rf)*particle.L20)*particle.dt
-                        particle.Ns = particle.Ns + fieldset.ms*particle.rf*particle.L20*particle.dt
-                        ###########################################################
-
-                        save_event = True
-
-                    elif particle.ot > fieldset.min_competency:
-                        # TESTING ONLY ############################################
-                        particle.L1 = particle.L10 - (fieldset.a + particle.mm)*particle.L10*particle.dt
-                        particle.L2 = particle.L20 + ((fieldset.a*particle.L10) - (fieldset.b + particle.mm)*particle.L20)*particle.dt
-                        ###########################################################
-
-                    else:
-                        # TESTING ONLY ############################################
-                        particle.L1 = particle.L10 - (particle.mm)*particle.L10*particle.dt
-                        ###########################################################
+                        else:
+                            # TESTING ONLY ############################################
+                            particle.L1 = particle.L10 - (particle.mm)*particle.L10*particle.dt
+                            ###########################################################
 
 
-                if save_event:
-                    # Save current values
-                    # Unfortunately since setattr doesn't work in a kernel, this
-                    # requires a horrendous elif chain.
+                    if save_event:
+                        # Save current values
+                        # Unfortunately since setattr doesn't work in a kernel, this
+                        # requires a horrendous elif chain.
 
-                    if particle.e_num == 0:
-                        particle.i0 = particle.current_reef_idx
-                        particle.ts0 = particle.current_reef_ts0
-                        particle.dt0 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns0 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 1:
-                        particle.i1 = particle.current_reef_idx
-                        particle.ts1 = particle.current_reef_ts0
-                        particle.dt1 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns1 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 2:
-                        particle.i2 = particle.current_reef_idx
-                        particle.ts2 = particle.current_reef_ts0
-                        particle.dt2 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns2 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 3:
-                        particle.i3 = particle.current_reef_idx
-                        particle.ts3 = particle.current_reef_ts0
-                        particle.dt3 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns3 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 4:
-                        particle.i4 = particle.current_reef_idx
-                        particle.ts4 = particle.current_reef_ts0
-                        particle.dt4 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns4 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 5:
-                        particle.i5 = particle.current_reef_idx
-                        particle.ts5 = particle.current_reef_ts0
-                        particle.dt5 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns5 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 6:
-                        particle.i6 = particle.current_reef_idx
-                        particle.ts6 = particle.current_reef_ts0
-                        particle.dt6 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns6 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 7:
-                        particle.i7 = particle.current_reef_idx
-                        particle.ts7 = particle.current_reef_ts0
-                        particle.dt7 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns7 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 8:
-                        particle.i8 = particle.current_reef_idx
-                        particle.ts8 = particle.current_reef_ts0
-                        particle.dt8 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns8 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 9:
-                        particle.i9 = particle.current_reef_idx
-                        particle.ts9 = particle.current_reef_ts0
-                        particle.dt9 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns9 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 10:
-                        particle.i10 = particle.current_reef_idx
-                        particle.ts10 = particle.current_reef_ts0
-                        particle.dt10 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns10 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 11:
-                        particle.i11 = particle.current_reef_idx
-                        particle.ts11 = particle.current_reef_ts0
-                        particle.dt11 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns11 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 12:
-                        particle.i12 = particle.current_reef_idx
-                        particle.ts12 = particle.current_reef_ts0
-                        particle.dt12 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns12 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 13:
-                        particle.i13 = particle.current_reef_idx
-                        particle.ts13 = particle.current_reef_ts0
-                        particle.dt13 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns13 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 14:
-                        particle.i14 = particle.current_reef_idx
-                        particle.ts14 = particle.current_reef_ts0
-                        particle.dt14 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns14 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 15:
-                        particle.i15 = particle.current_reef_idx
-                        particle.ts15 = particle.current_reef_ts0
-                        particle.dt15 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns15 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 16:
-                        particle.i16 = particle.current_reef_idx
-                        particle.ts16 = particle.current_reef_ts0
-                        particle.dt16 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns16 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 17:
-                        particle.i17 = particle.current_reef_idx
-                        particle.ts17 = particle.current_reef_ts0
-                        particle.dt17 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns17 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 18:
-                        particle.i18 = particle.current_reef_idx
-                        particle.ts18 = particle.current_reef_ts0
-                        particle.dt18 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns18 = particle.Ns
-                        ###########################################################
-                    elif particle.e_num == 19:
-                        particle.i19 = particle.current_reef_idx
-                        particle.ts19 = particle.current_reef_ts0
-                        particle.dt19 = particle.current_reef_ts
-                        # TESTING ONLY ############################################
-                        particle.Ns19 = particle.Ns
-                        ###########################################################
+                        if particle.e_num == 0:
+                            particle.i0 = particle.current_reef_idx
+                            particle.ts0 = particle.current_reef_ts0
+                            particle.dt0 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns0 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 1:
+                            particle.i1 = particle.current_reef_idx
+                            particle.ts1 = particle.current_reef_ts0
+                            particle.dt1 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns1 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 2:
+                            particle.i2 = particle.current_reef_idx
+                            particle.ts2 = particle.current_reef_ts0
+                            particle.dt2 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns2 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 3:
+                            particle.i3 = particle.current_reef_idx
+                            particle.ts3 = particle.current_reef_ts0
+                            particle.dt3 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns3 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 4:
+                            particle.i4 = particle.current_reef_idx
+                            particle.ts4 = particle.current_reef_ts0
+                            particle.dt4 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns4 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 5:
+                            particle.i5 = particle.current_reef_idx
+                            particle.ts5 = particle.current_reef_ts0
+                            particle.dt5 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns5 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 6:
+                            particle.i6 = particle.current_reef_idx
+                            particle.ts6 = particle.current_reef_ts0
+                            particle.dt6 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns6 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 7:
+                            particle.i7 = particle.current_reef_idx
+                            particle.ts7 = particle.current_reef_ts0
+                            particle.dt7 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns7 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 8:
+                            particle.i8 = particle.current_reef_idx
+                            particle.ts8 = particle.current_reef_ts0
+                            particle.dt8 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns8 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 9:
+                            particle.i9 = particle.current_reef_idx
+                            particle.ts9 = particle.current_reef_ts0
+                            particle.dt9 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns9 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 10:
+                            particle.i10 = particle.current_reef_idx
+                            particle.ts10 = particle.current_reef_ts0
+                            particle.dt10 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns10 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 11:
+                            particle.i11 = particle.current_reef_idx
+                            particle.ts11 = particle.current_reef_ts0
+                            particle.dt11 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns11 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 12:
+                            particle.i12 = particle.current_reef_idx
+                            particle.ts12 = particle.current_reef_ts0
+                            particle.dt12 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns12 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 13:
+                            particle.i13 = particle.current_reef_idx
+                            particle.ts13 = particle.current_reef_ts0
+                            particle.dt13 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns13 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 14:
+                            particle.i14 = particle.current_reef_idx
+                            particle.ts14 = particle.current_reef_ts0
+                            particle.dt14 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns14 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 15:
+                            particle.i15 = particle.current_reef_idx
+                            particle.ts15 = particle.current_reef_ts0
+                            particle.dt15 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns15 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 16:
+                            particle.i16 = particle.current_reef_idx
+                            particle.ts16 = particle.current_reef_ts0
+                            particle.dt16 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns16 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 17:
+                            particle.i17 = particle.current_reef_idx
+                            particle.ts17 = particle.current_reef_ts0
+                            particle.dt17 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns17 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 18:
+                            particle.i18 = particle.current_reef_idx
+                            particle.ts18 = particle.current_reef_ts0
+                            particle.dt18 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns18 = particle.Ns
+                            ###########################################################
+                        elif particle.e_num == 19:
+                            particle.i19 = particle.current_reef_idx
+                            particle.ts19 = particle.current_reef_ts0
+                            particle.dt19 = particle.current_reef_ts
+                            # TESTING ONLY ############################################
+                            particle.Ns19 = particle.Ns
+                            ###########################################################
 
-                        particle.delete() # Delete particle, since no more reefs can be saved
+                            particle.active = 0 # Deactivate particle, since no more reefs can be saved
 
-                    # Then reset current values to zero
-                    particle.current_reef_idx = 0
-                    particle.current_reef_ts0 = 0
-                    particle.current_reef_ts = 0
+                        # Then reset current values to zero
+                        particle.current_reef_idx = 0
+                        particle.current_reef_ts0 = 0
+                        particle.current_reef_ts = 0
 
-                    # Add to event number counter
-                    particle.e_num += 1
+                        # Add to event number counter
+                        particle.e_num += 1
 
-                if new_event:
-                    # Add status to current (for current event) values
-                    # Timesteps at current reef
-                    particle.current_reef_ts = 1
+                    if new_event:
+                        # Add status to current (for current event) values
+                        # Timesteps at current reef
+                        particle.current_reef_ts = 1
 
-                    # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
-                    particle.current_reef_ts0 = particle.ot - 1
+                        # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
+                        particle.current_reef_ts0 = particle.ot - 1
 
-                    # Current reef group
-                    particle.current_reef_idx = particle.idx
+                        # Current reef group
+                        particle.current_reef_idx = particle.idx
 
-                    # TESTING ONLY ############################################
-                    particle.Ns = particle.Ns_next
-                    ###########################################################
+                        # TESTING ONLY ############################################
+                        particle.Ns = particle.Ns_next
+                        ###########################################################
 
                 # Finally, check if particle needs to be deleted
                 if particle.ot >= fieldset.max_age:
@@ -1326,6 +1351,7 @@ class Experiment():
                         particle.delete()
 
         elif test:
+            # VISUALISATION KERNEL
             def event(particle, fieldset, time):
 
                 # 1 Keep track of the amount of time spent at sea
@@ -1357,225 +1383,232 @@ class Experiment():
                     particle.L1 = particle.L10 - (particle.mm)*particle.L10*particle.dt
 
         else:
+            # OPERATIONAL CMEMS KERNEL
             if self.cfg['preset'] == 'CMEMS':
                 def event(particle, fieldset, time):
 
                     # 1 Keep track of the amount of time spent at sea
                     particle.ot += 1
 
-                    # 2 Assess reef status
-                    particle.idx = fieldset.idx[particle]
+                    ###############################################################
+                    # ACTIVE PARTICLES ONLY                                       #
+                    ###############################################################
 
-                    save_event = False
-                    new_event = False
+                    if particle.active:
 
-                    # 3 Trigger event cascade if larva is in a reef site and competency has been reached
-                    if particle.idx > 0 and particle.ot > fieldset.min_competency:
+                        # 2 Assess reef status
+                        particle.idx = fieldset.idx[particle]
 
-                        # Check if an event has already been triggered
-                        if particle.current_reef_ts > 0:
+                        save_event = False
+                        new_event = False
 
-                            # Check if we are in the same reef idx as the current event
-                            if particle.idx == particle.current_reef_idx:
+                        # 3 Trigger event cascade if larva is in a reef site and competency has been reached
+                        if particle.idx > 0 and particle.ot > fieldset.min_competency:
 
-                                # If contiguous event, just add time and phi
-                                particle.current_reef_ts += 1
+                            # Check if an event has already been triggered
+                            if particle.current_reef_ts > 0:
 
-                                # But also check that the particle isn't about to expire (save if so)
-                                # Otherwise particles hanging around reefs at the end of the simulation
-                                # won't get saved.
+                                # Check if we are in the same reef idx as the current event
+                                if particle.idx == particle.current_reef_idx:
 
-                                if particle.ot > fieldset.max_age:
+                                    # If contiguous event, just add time and phi
+                                    particle.current_reef_ts += 1
+
+                                    # But also check that the particle isn't about to expire (save if so)
+                                    # Otherwise particles hanging around reefs at the end of the simulation
+                                    # won't get saved.
+
+                                    if particle.ot > fieldset.max_age:
+                                        save_event = True
+
+                                else:
+
+                                    # Otherwise, we need to save the old event and create a new event
                                     save_event = True
+                                    new_event = True
 
                             else:
 
-                                # Otherwise, we need to save the old event and create a new event
-                                save_event = True
+                                # If event has not been triggered, create a new event
                                 new_event = True
 
                         else:
 
-                            # If event has not been triggered, create a new event
-                            new_event = True
+                            # Otherwise, check if ongoing event has just ended
+                            if particle.current_reef_ts > 0:
 
-                    else:
+                                save_event = True
 
-                        # Otherwise, check if ongoing event has just ended
-                        if particle.current_reef_ts > 0:
+                        if save_event:
+                            # Save current values
+                            # Unfortunately, due to the limited functions allowed in parcels, this
+                            # required an horrendous if-else chain
 
-                            save_event = True
+                            if particle.e_num == 0:
+                                particle.i0 = particle.current_reef_idx
+                                particle.ts0 = particle.current_reef_ts0
+                                particle.dt0 = particle.current_reef_ts
+                            elif particle.e_num == 1:
+                                particle.i1 = particle.current_reef_idx
+                                particle.ts1 = particle.current_reef_ts0
+                                particle.dt1 = particle.current_reef_ts
+                            elif particle.e_num == 2:
+                                particle.i2 = particle.current_reef_idx
+                                particle.ts2 = particle.current_reef_ts0
+                                particle.dt2 = particle.current_reef_ts
+                            elif particle.e_num == 3:
+                                particle.i3 = particle.current_reef_idx
+                                particle.ts3 = particle.current_reef_ts0
+                                particle.dt3 = particle.current_reef_ts
+                            elif particle.e_num == 4:
+                                particle.i4 = particle.current_reef_idx
+                                particle.ts4 = particle.current_reef_ts0
+                                particle.dt4 = particle.current_reef_ts
+                            elif particle.e_num == 5:
+                                particle.i5 = particle.current_reef_idx
+                                particle.ts5 = particle.current_reef_ts0
+                                particle.dt5 = particle.current_reef_ts
+                            elif particle.e_num == 6:
+                                particle.i6 = particle.current_reef_idx
+                                particle.ts6 = particle.current_reef_ts0
+                                particle.dt6 = particle.current_reef_ts
+                            elif particle.e_num == 7:
+                                particle.i7 = particle.current_reef_idx
+                                particle.ts7 = particle.current_reef_ts0
+                                particle.dt7 = particle.current_reef_ts
+                            elif particle.e_num == 8:
+                                particle.i8 = particle.current_reef_idx
+                                particle.ts8 = particle.current_reef_ts0
+                                particle.dt8 = particle.current_reef_ts
+                            elif particle.e_num == 9:
+                                particle.i9 = particle.current_reef_idx
+                                particle.ts9 = particle.current_reef_ts0
+                                particle.dt9 = particle.current_reef_ts
+                            elif particle.e_num == 10:
+                                particle.i10 = particle.current_reef_idx
+                                particle.ts10 = particle.current_reef_ts0
+                                particle.dt10 = particle.current_reef_ts
+                            elif particle.e_num == 11:
+                                particle.i11 = particle.current_reef_idx
+                                particle.ts11 = particle.current_reef_ts0
+                                particle.dt11 = particle.current_reef_ts
+                            elif particle.e_num == 12:
+                                particle.i12 = particle.current_reef_idx
+                                particle.ts12 = particle.current_reef_ts0
+                                particle.dt12 = particle.current_reef_ts
+                            elif particle.e_num == 13:
+                                particle.i13 = particle.current_reef_idx
+                                particle.ts13 = particle.current_reef_ts0
+                                particle.dt13 = particle.current_reef_ts
+                            elif particle.e_num == 14:
+                                particle.i14 = particle.current_reef_idx
+                                particle.ts14 = particle.current_reef_ts0
+                                particle.dt14 = particle.current_reef_ts
+                            elif particle.e_num == 15:
+                                particle.i15 = particle.current_reef_idx
+                                particle.ts15 = particle.current_reef_ts0
+                                particle.dt15 = particle.current_reef_ts
+                            elif particle.e_num == 16:
+                                particle.i16 = particle.current_reef_idx
+                                particle.ts16 = particle.current_reef_ts0
+                                particle.dt16 = particle.current_reef_ts
+                            elif particle.e_num == 17:
+                                particle.i17 = particle.current_reef_idx
+                                particle.ts17 = particle.current_reef_ts0
+                                particle.dt17 = particle.current_reef_ts
+                            elif particle.e_num == 18:
+                                particle.i18 = particle.current_reef_idx
+                                particle.ts18 = particle.current_reef_ts0
+                                particle.dt18 = particle.current_reef_ts
+                            elif particle.e_num == 19:
+                                particle.i19 = particle.current_reef_idx
+                                particle.ts19 = particle.current_reef_ts0
+                                particle.dt19 = particle.current_reef_ts
+                            elif particle.e_num == 20:
+                                particle.i20 = particle.current_reef_idx
+                                particle.ts20 = particle.current_reef_ts0
+                                particle.dt20 = particle.current_reef_ts
+                            elif particle.e_num == 21:
+                                particle.i21 = particle.current_reef_idx
+                                particle.ts21 = particle.current_reef_ts0
+                                particle.dt21 = particle.current_reef_ts
+                            elif particle.e_num == 22:
+                                particle.i22 = particle.current_reef_idx
+                                particle.ts22 = particle.current_reef_ts0
+                                particle.dt22 = particle.current_reef_ts
+                            elif particle.e_num == 23:
+                                particle.i23 = particle.current_reef_idx
+                                particle.ts23 = particle.current_reef_ts0
+                                particle.dt23 = particle.current_reef_ts
+                            elif particle.e_num == 24:
+                                particle.i24 = particle.current_reef_idx
+                                particle.ts24 = particle.current_reef_ts0
+                                particle.dt24 = particle.current_reef_ts
+                            elif particle.e_num == 25:
+                                particle.i25 = particle.current_reef_idx
+                                particle.ts25 = particle.current_reef_ts0
+                                particle.dt25 = particle.current_reef_ts
+                            elif particle.e_num == 26:
+                                particle.i26 = particle.current_reef_idx
+                                particle.ts26 = particle.current_reef_ts0
+                                particle.dt26 = particle.current_reef_ts
+                            elif particle.e_num == 27:
+                                particle.i27 = particle.current_reef_idx
+                                particle.ts27 = particle.current_reef_ts0
+                                particle.dt27 = particle.current_reef_ts
+                            elif particle.e_num == 28:
+                                particle.i28 = particle.current_reef_idx
+                                particle.ts28 = particle.current_reef_ts0
+                                particle.dt28 = particle.current_reef_ts
+                            elif particle.e_num == 29:
+                                particle.i29 = particle.current_reef_idx
+                                particle.ts29 = particle.current_reef_ts0
+                                particle.dt29 = particle.current_reef_ts
+                            elif particle.e_num == 30:
+                                particle.i30 = particle.current_reef_idx
+                                particle.ts30 = particle.current_reef_ts0
+                                particle.dt30 = particle.current_reef_ts
+                            elif particle.e_num == 31:
+                                particle.i31 = particle.current_reef_idx
+                                particle.ts31 = particle.current_reef_ts0
+                                particle.dt31 = particle.current_reef_ts
+                            elif particle.e_num == 32:
+                                particle.i32 = particle.current_reef_idx
+                                particle.ts32 = particle.current_reef_ts0
+                                particle.dt32 = particle.current_reef_ts
+                            elif particle.e_num == 33:
+                                particle.i33 = particle.current_reef_idx
+                                particle.ts33 = particle.current_reef_ts0
+                                particle.dt33 = particle.current_reef_ts
+                            elif particle.e_num == 34:
+                                particle.i34 = particle.current_reef_idx
+                                particle.ts34 = particle.current_reef_ts0
+                                particle.dt34 = particle.current_reef_ts
+                            elif particle.e_num == 35:
+                                particle.i35 = particle.current_reef_idx
+                                particle.ts35 = particle.current_reef_ts0
+                                particle.dt35 = particle.current_reef_ts
 
-                    if save_event:
-                        # Save current values
-                        # Unfortunately, due to the limited functions allowed in parcels, this
-                        # required an horrendous if-else chain
+                                particle.active = 0  # Deactivate particle, since no more reefs can be saved
 
-                        if particle.e_num == 0:
-                            particle.i0 = particle.current_reef_idx
-                            particle.ts0 = particle.current_reef_ts0
-                            particle.dt0 = particle.current_reef_ts
-                        elif particle.e_num == 1:
-                            particle.i1 = particle.current_reef_idx
-                            particle.ts1 = particle.current_reef_ts0
-                            particle.dt1 = particle.current_reef_ts
-                        elif particle.e_num == 2:
-                            particle.i2 = particle.current_reef_idx
-                            particle.ts2 = particle.current_reef_ts0
-                            particle.dt2 = particle.current_reef_ts
-                        elif particle.e_num == 3:
-                            particle.i3 = particle.current_reef_idx
-                            particle.ts3 = particle.current_reef_ts0
-                            particle.dt3 = particle.current_reef_ts
-                        elif particle.e_num == 4:
-                            particle.i4 = particle.current_reef_idx
-                            particle.ts4 = particle.current_reef_ts0
-                            particle.dt4 = particle.current_reef_ts
-                        elif particle.e_num == 5:
-                            particle.i5 = particle.current_reef_idx
-                            particle.ts5 = particle.current_reef_ts0
-                            particle.dt5 = particle.current_reef_ts
-                        elif particle.e_num == 6:
-                            particle.i6 = particle.current_reef_idx
-                            particle.ts6 = particle.current_reef_ts0
-                            particle.dt6 = particle.current_reef_ts
-                        elif particle.e_num == 7:
-                            particle.i7 = particle.current_reef_idx
-                            particle.ts7 = particle.current_reef_ts0
-                            particle.dt7 = particle.current_reef_ts
-                        elif particle.e_num == 8:
-                            particle.i8 = particle.current_reef_idx
-                            particle.ts8 = particle.current_reef_ts0
-                            particle.dt8 = particle.current_reef_ts
-                        elif particle.e_num == 9:
-                            particle.i9 = particle.current_reef_idx
-                            particle.ts9 = particle.current_reef_ts0
-                            particle.dt9 = particle.current_reef_ts
-                        elif particle.e_num == 10:
-                            particle.i10 = particle.current_reef_idx
-                            particle.ts10 = particle.current_reef_ts0
-                            particle.dt10 = particle.current_reef_ts
-                        elif particle.e_num == 11:
-                            particle.i11 = particle.current_reef_idx
-                            particle.ts11 = particle.current_reef_ts0
-                            particle.dt11 = particle.current_reef_ts
-                        elif particle.e_num == 12:
-                            particle.i12 = particle.current_reef_idx
-                            particle.ts12 = particle.current_reef_ts0
-                            particle.dt12 = particle.current_reef_ts
-                        elif particle.e_num == 13:
-                            particle.i13 = particle.current_reef_idx
-                            particle.ts13 = particle.current_reef_ts0
-                            particle.dt13 = particle.current_reef_ts
-                        elif particle.e_num == 14:
-                            particle.i14 = particle.current_reef_idx
-                            particle.ts14 = particle.current_reef_ts0
-                            particle.dt14 = particle.current_reef_ts
-                        elif particle.e_num == 15:
-                            particle.i15 = particle.current_reef_idx
-                            particle.ts15 = particle.current_reef_ts0
-                            particle.dt15 = particle.current_reef_ts
-                        elif particle.e_num == 16:
-                            particle.i16 = particle.current_reef_idx
-                            particle.ts16 = particle.current_reef_ts0
-                            particle.dt16 = particle.current_reef_ts
-                        elif particle.e_num == 17:
-                            particle.i17 = particle.current_reef_idx
-                            particle.ts17 = particle.current_reef_ts0
-                            particle.dt17 = particle.current_reef_ts
-                        elif particle.e_num == 18:
-                            particle.i18 = particle.current_reef_idx
-                            particle.ts18 = particle.current_reef_ts0
-                            particle.dt18 = particle.current_reef_ts
-                        elif particle.e_num == 19:
-                            particle.i19 = particle.current_reef_idx
-                            particle.ts19 = particle.current_reef_ts0
-                            particle.dt19 = particle.current_reef_ts
-                        elif particle.e_num == 20:
-                            particle.i20 = particle.current_reef_idx
-                            particle.ts20 = particle.current_reef_ts0
-                            particle.dt20 = particle.current_reef_ts
-                        elif particle.e_num == 21:
-                            particle.i21 = particle.current_reef_idx
-                            particle.ts21 = particle.current_reef_ts0
-                            particle.dt21 = particle.current_reef_ts
-                        elif particle.e_num == 22:
-                            particle.i22 = particle.current_reef_idx
-                            particle.ts22 = particle.current_reef_ts0
-                            particle.dt22 = particle.current_reef_ts
-                        elif particle.e_num == 23:
-                            particle.i23 = particle.current_reef_idx
-                            particle.ts23 = particle.current_reef_ts0
-                            particle.dt23 = particle.current_reef_ts
-                        elif particle.e_num == 24:
-                            particle.i24 = particle.current_reef_idx
-                            particle.ts24 = particle.current_reef_ts0
-                            particle.dt24 = particle.current_reef_ts
-                        elif particle.e_num == 25:
-                            particle.i25 = particle.current_reef_idx
-                            particle.ts25 = particle.current_reef_ts0
-                            particle.dt25 = particle.current_reef_ts
-                        elif particle.e_num == 26:
-                            particle.i26 = particle.current_reef_idx
-                            particle.ts26 = particle.current_reef_ts0
-                            particle.dt26 = particle.current_reef_ts
-                        elif particle.e_num == 27:
-                            particle.i27 = particle.current_reef_idx
-                            particle.ts27 = particle.current_reef_ts0
-                            particle.dt27 = particle.current_reef_ts
-                        elif particle.e_num == 28:
-                            particle.i28 = particle.current_reef_idx
-                            particle.ts28 = particle.current_reef_ts0
-                            particle.dt28 = particle.current_reef_ts
-                        elif particle.e_num == 29:
-                            particle.i29 = particle.current_reef_idx
-                            particle.ts29 = particle.current_reef_ts0
-                            particle.dt29 = particle.current_reef_ts
-                        elif particle.e_num == 30:
-                            particle.i30 = particle.current_reef_idx
-                            particle.ts30 = particle.current_reef_ts0
-                            particle.dt30 = particle.current_reef_ts
-                        elif particle.e_num == 31:
-                            particle.i31 = particle.current_reef_idx
-                            particle.ts31 = particle.current_reef_ts0
-                            particle.dt31 = particle.current_reef_ts
-                        elif particle.e_num == 32:
-                            particle.i32 = particle.current_reef_idx
-                            particle.ts32 = particle.current_reef_ts0
-                            particle.dt32 = particle.current_reef_ts
-                        elif particle.e_num == 33:
-                            particle.i33 = particle.current_reef_idx
-                            particle.ts33 = particle.current_reef_ts0
-                            particle.dt33 = particle.current_reef_ts
-                        elif particle.e_num == 34:
-                            particle.i34 = particle.current_reef_idx
-                            particle.ts34 = particle.current_reef_ts0
-                            particle.dt34 = particle.current_reef_ts
-                        elif particle.e_num == 35:
-                            particle.i35 = particle.current_reef_idx
-                            particle.ts35 = particle.current_reef_ts0
-                            particle.dt35 = particle.current_reef_ts
+                            # Then reset current values to zero
+                            particle.current_reef_idx = 0
+                            particle.current_reef_ts0 = 0
+                            particle.current_reef_ts = 0
 
-                            particle.delete() # Delete particle, since no more reefs can be saved
+                            # Add to event number counter
+                            particle.e_num += 1
 
-                        # Then reset current values to zero
-                        particle.current_reef_idx = 0
-                        particle.current_reef_ts0 = 0
-                        particle.current_reef_ts = 0
+                        if new_event:
+                            # Add status to current (for current event) values
+                            # Timesteps at current reef
+                            particle.current_reef_ts = 1
 
-                        # Add to event number counter
-                        particle.e_num += 1
+                            # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
+                            particle.current_reef_ts0 = particle.ot - 1
 
-                    if new_event:
-                        # Add status to current (for current event) values
-                        # Timesteps at current reef
-                        particle.current_reef_ts = 1
-
-                        # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
-                        particle.current_reef_ts0 = particle.ot - 1
-
-                        # Current reef group
-                        particle.current_reef_idx = particle.idx
+                            # Current reef group
+                            particle.current_reef_idx = particle.idx
 
                     # Finally, check if particle needs to be deleted
                     if particle.ot >= fieldset.max_age:
@@ -1585,280 +1618,287 @@ class Experiment():
                             particle.delete()
 
             elif self.cfg['preset'] == 'WINDS':
+                # OPERATIONAL WINDS KERNEL
                 def event(particle, fieldset, time):
 
                     # 1 Keep track of the amount of time spent at sea
                     particle.ot += 1
 
-                    # 2 Assess reef status
-                    particle.idx = fieldset.idx[particle]
+                    ###############################################################
+                    # ACTIVE PARTICLES ONLY                                       #
+                    ###############################################################
 
-                    save_event = False
-                    new_event = False
+                    if particle.active:
 
-                    # 3 Trigger event cascade if larva is in a reef site and competency has been reached
-                    if particle.idx > 0 and particle.ot > fieldset.min_competency:
+                        # 2 Assess reef status
+                        particle.idx = fieldset.idx[particle]
 
-                        # Check if an event has already been triggered
-                        if particle.current_reef_ts > 0:
+                        save_event = False
+                        new_event = False
 
-                            # Check if we are in the same reef idx as the current event
-                            if particle.idx == particle.current_reef_idx:
+                        # 3 Trigger event cascade if larva is in a reef site and competency has been reached
+                        if particle.idx > 0 and particle.ot > fieldset.min_competency:
 
-                                # If contiguous event, just add time and phi
-                                particle.current_reef_ts += 1
+                            # Check if an event has already been triggered
+                            if particle.current_reef_ts > 0:
 
-                                # But also check that the particle isn't about to expire (save if so)
-                                # Otherwise particles hanging around reefs at the end of the simulation
-                                # won't get saved.
+                                # Check if we are in the same reef idx as the current event
+                                if particle.idx == particle.current_reef_idx:
 
-                                if particle.ot > fieldset.max_age:
+                                    # If contiguous event, just add time and phi
+                                    particle.current_reef_ts += 1
+
+                                    # But also check that the particle isn't about to expire (save if so)
+                                    # Otherwise particles hanging around reefs at the end of the simulation
+                                    # won't get saved.
+
+                                    if particle.ot > fieldset.max_age:
+                                        save_event = True
+
+                                else:
+
+                                    # Otherwise, we need to save the old event and create a new event
                                     save_event = True
+                                    new_event = True
 
                             else:
 
-                                # Otherwise, we need to save the old event and create a new event
-                                save_event = True
+                                # If event has not been triggered, create a new event
                                 new_event = True
 
                         else:
 
-                            # If event has not been triggered, create a new event
-                            new_event = True
+                            # Otherwise, check if ongoing event has just ended
+                            if particle.current_reef_ts > 0:
 
-                    else:
+                                save_event = True
 
-                        # Otherwise, check if ongoing event has just ended
-                        if particle.current_reef_ts > 0:
+                        if save_event:
+                            # Save current values
+                            # Unfortunately, due to the limited functions allowed in parcels, this
+                            # required an horrendous if-else chain
 
-                            save_event = True
+                            if particle.e_num == 0:
+                                particle.i0 = particle.current_reef_idx
+                                particle.ts0 = particle.current_reef_ts0
+                                particle.dt0 = particle.current_reef_ts
+                            elif particle.e_num == 1:
+                                particle.i1 = particle.current_reef_idx
+                                particle.ts1 = particle.current_reef_ts0
+                                particle.dt1 = particle.current_reef_ts
+                            elif particle.e_num == 2:
+                                particle.i2 = particle.current_reef_idx
+                                particle.ts2 = particle.current_reef_ts0
+                                particle.dt2 = particle.current_reef_ts
+                            elif particle.e_num == 3:
+                                particle.i3 = particle.current_reef_idx
+                                particle.ts3 = particle.current_reef_ts0
+                                particle.dt3 = particle.current_reef_ts
+                            elif particle.e_num == 4:
+                                particle.i4 = particle.current_reef_idx
+                                particle.ts4 = particle.current_reef_ts0
+                                particle.dt4 = particle.current_reef_ts
+                            elif particle.e_num == 5:
+                                particle.i5 = particle.current_reef_idx
+                                particle.ts5 = particle.current_reef_ts0
+                                particle.dt5 = particle.current_reef_ts
+                            elif particle.e_num == 6:
+                                particle.i6 = particle.current_reef_idx
+                                particle.ts6 = particle.current_reef_ts0
+                                particle.dt6 = particle.current_reef_ts
+                            elif particle.e_num == 7:
+                                particle.i7 = particle.current_reef_idx
+                                particle.ts7 = particle.current_reef_ts0
+                                particle.dt7 = particle.current_reef_ts
+                            elif particle.e_num == 8:
+                                particle.i8 = particle.current_reef_idx
+                                particle.ts8 = particle.current_reef_ts0
+                                particle.dt8 = particle.current_reef_ts
+                            elif particle.e_num == 9:
+                                particle.i9 = particle.current_reef_idx
+                                particle.ts9 = particle.current_reef_ts0
+                                particle.dt9 = particle.current_reef_ts
+                            elif particle.e_num == 10:
+                                particle.i10 = particle.current_reef_idx
+                                particle.ts10 = particle.current_reef_ts0
+                                particle.dt10 = particle.current_reef_ts
+                            elif particle.e_num == 11:
+                                particle.i11 = particle.current_reef_idx
+                                particle.ts11 = particle.current_reef_ts0
+                                particle.dt11 = particle.current_reef_ts
+                            elif particle.e_num == 12:
+                                particle.i12 = particle.current_reef_idx
+                                particle.ts12 = particle.current_reef_ts0
+                                particle.dt12 = particle.current_reef_ts
+                            elif particle.e_num == 13:
+                                particle.i13 = particle.current_reef_idx
+                                particle.ts13 = particle.current_reef_ts0
+                                particle.dt13 = particle.current_reef_ts
+                            elif particle.e_num == 14:
+                                particle.i14 = particle.current_reef_idx
+                                particle.ts14 = particle.current_reef_ts0
+                                particle.dt14 = particle.current_reef_ts
+                            elif particle.e_num == 15:
+                                particle.i15 = particle.current_reef_idx
+                                particle.ts15 = particle.current_reef_ts0
+                                particle.dt15 = particle.current_reef_ts
+                            elif particle.e_num == 16:
+                                particle.i16 = particle.current_reef_idx
+                                particle.ts16 = particle.current_reef_ts0
+                                particle.dt16 = particle.current_reef_ts
+                            elif particle.e_num == 17:
+                                particle.i17 = particle.current_reef_idx
+                                particle.ts17 = particle.current_reef_ts0
+                                particle.dt17 = particle.current_reef_ts
+                            elif particle.e_num == 18:
+                                particle.i18 = particle.current_reef_idx
+                                particle.ts18 = particle.current_reef_ts0
+                                particle.dt18 = particle.current_reef_ts
+                            elif particle.e_num == 19:
+                                particle.i19 = particle.current_reef_idx
+                                particle.ts19 = particle.current_reef_ts0
+                                particle.dt19 = particle.current_reef_ts
+                            elif particle.e_num == 20:
+                                particle.i20 = particle.current_reef_idx
+                                particle.ts20 = particle.current_reef_ts0
+                                particle.dt20 = particle.current_reef_ts
+                            elif particle.e_num == 21:
+                                particle.i21 = particle.current_reef_idx
+                                particle.ts21 = particle.current_reef_ts0
+                                particle.dt21 = particle.current_reef_ts
+                            elif particle.e_num == 22:
+                                particle.i22 = particle.current_reef_idx
+                                particle.ts22 = particle.current_reef_ts0
+                                particle.dt22 = particle.current_reef_ts
+                            elif particle.e_num == 23:
+                                particle.i23 = particle.current_reef_idx
+                                particle.ts23 = particle.current_reef_ts0
+                                particle.dt23 = particle.current_reef_ts
+                            elif particle.e_num == 24:
+                                particle.i24 = particle.current_reef_idx
+                                particle.ts24 = particle.current_reef_ts0
+                                particle.dt24 = particle.current_reef_ts
+                            elif particle.e_num == 25:
+                                particle.i25 = particle.current_reef_idx
+                                particle.ts25 = particle.current_reef_ts0
+                                particle.dt25 = particle.current_reef_ts
+                            elif particle.e_num == 26:
+                                particle.i26 = particle.current_reef_idx
+                                particle.ts26 = particle.current_reef_ts0
+                                particle.dt26 = particle.current_reef_ts
+                            elif particle.e_num == 27:
+                                particle.i27 = particle.current_reef_idx
+                                particle.ts27 = particle.current_reef_ts0
+                                particle.dt27 = particle.current_reef_ts
+                            elif particle.e_num == 28:
+                                particle.i28 = particle.current_reef_idx
+                                particle.ts28 = particle.current_reef_ts0
+                                particle.dt28 = particle.current_reef_ts
+                            elif particle.e_num == 29:
+                                particle.i29 = particle.current_reef_idx
+                                particle.ts29 = particle.current_reef_ts0
+                                particle.dt29 = particle.current_reef_ts
+                            elif particle.e_num == 30:
+                                particle.i30 = particle.current_reef_idx
+                                particle.ts30 = particle.current_reef_ts0
+                                particle.dt30 = particle.current_reef_ts
+                            elif particle.e_num == 31:
+                                particle.i31 = particle.current_reef_idx
+                                particle.ts31 = particle.current_reef_ts0
+                                particle.dt31 = particle.current_reef_ts
+                            elif particle.e_num == 32:
+                                particle.i32 = particle.current_reef_idx
+                                particle.ts32 = particle.current_reef_ts0
+                                particle.dt32 = particle.current_reef_ts
+                            elif particle.e_num == 33:
+                                particle.i33 = particle.current_reef_idx
+                                particle.ts33 = particle.current_reef_ts0
+                                particle.dt33 = particle.current_reef_ts
+                            elif particle.e_num == 34:
+                                particle.i34 = particle.current_reef_idx
+                                particle.ts34 = particle.current_reef_ts0
+                                particle.dt34 = particle.current_reef_ts
+                            elif particle.e_num == 35:
+                                particle.i35 = particle.current_reef_idx
+                                particle.ts35 = particle.current_reef_ts0
+                                particle.dt35 = particle.current_reef_ts
+                            elif particle.e_num == 36:
+                                particle.i36 = particle.current_reef_idx
+                                particle.ts36 = particle.current_reef_ts0
+                                particle.dt36 = particle.current_reef_ts
+                            elif particle.e_num == 37:
+                                particle.i37 = particle.current_reef_idx
+                                particle.ts37 = particle.current_reef_ts0
+                                particle.dt37 = particle.current_reef_ts
+                            elif particle.e_num == 38:
+                                particle.i38 = particle.current_reef_idx
+                                particle.ts38 = particle.current_reef_ts0
+                                particle.dt38 = particle.current_reef_ts
+                            elif particle.e_num == 39:
+                                particle.i39 = particle.current_reef_idx
+                                particle.ts39 = particle.current_reef_ts0
+                                particle.dt39 = particle.current_reef_ts
+                            elif particle.e_num == 40:
+                                particle.i40 = particle.current_reef_idx
+                                particle.ts40 = particle.current_reef_ts0
+                                particle.dt40 = particle.current_reef_ts
+                            elif particle.e_num == 41:
+                                particle.i41 = particle.current_reef_idx
+                                particle.ts41 = particle.current_reef_ts0
+                                particle.dt41 = particle.current_reef_ts
+                            elif particle.e_num == 42:
+                                particle.i42 = particle.current_reef_idx
+                                particle.ts42 = particle.current_reef_ts0
+                                particle.dt42 = particle.current_reef_ts
+                            elif particle.e_num == 43:
+                                particle.i43 = particle.current_reef_idx
+                                particle.ts43 = particle.current_reef_ts0
+                                particle.dt43 = particle.current_reef_ts
+                            elif particle.e_num == 44:
+                                particle.i44 = particle.current_reef_idx
+                                particle.ts44 = particle.current_reef_ts0
+                                particle.dt44 = particle.current_reef_ts
+                            elif particle.e_num == 45:
+                                particle.i45 = particle.current_reef_idx
+                                particle.ts45 = particle.current_reef_ts0
+                                particle.dt45 = particle.current_reef_ts
+                            elif particle.e_num == 46:
+                                particle.i46 = particle.current_reef_idx
+                                particle.ts46 = particle.current_reef_ts0
+                                particle.dt46 = particle.current_reef_ts
+                            elif particle.e_num == 47:
+                                particle.i47 = particle.current_reef_idx
+                                particle.ts47 = particle.current_reef_ts0
+                                particle.dt47 = particle.current_reef_ts
+                            elif particle.e_num == 48:
+                                particle.i48 = particle.current_reef_idx
+                                particle.ts48 = particle.current_reef_ts0
+                                particle.dt48 = particle.current_reef_ts
+                            elif particle.e_num == 49:
+                                particle.i49 = particle.current_reef_idx
+                                particle.ts49 = particle.current_reef_ts0
+                                particle.dt49 = particle.current_reef_ts
 
-                    if save_event:
-                        # Save current values
-                        # Unfortunately, due to the limited functions allowed in parcels, this
-                        # required an horrendous if-else chain
+                                particle.active = 0 # Deactivate particle, since no more reefs can be saved
 
-                        if particle.e_num == 0:
-                            particle.i0 = particle.current_reef_idx
-                            particle.ts0 = particle.current_reef_ts0
-                            particle.dt0 = particle.current_reef_ts
-                        elif particle.e_num == 1:
-                            particle.i1 = particle.current_reef_idx
-                            particle.ts1 = particle.current_reef_ts0
-                            particle.dt1 = particle.current_reef_ts
-                        elif particle.e_num == 2:
-                            particle.i2 = particle.current_reef_idx
-                            particle.ts2 = particle.current_reef_ts0
-                            particle.dt2 = particle.current_reef_ts
-                        elif particle.e_num == 3:
-                            particle.i3 = particle.current_reef_idx
-                            particle.ts3 = particle.current_reef_ts0
-                            particle.dt3 = particle.current_reef_ts
-                        elif particle.e_num == 4:
-                            particle.i4 = particle.current_reef_idx
-                            particle.ts4 = particle.current_reef_ts0
-                            particle.dt4 = particle.current_reef_ts
-                        elif particle.e_num == 5:
-                            particle.i5 = particle.current_reef_idx
-                            particle.ts5 = particle.current_reef_ts0
-                            particle.dt5 = particle.current_reef_ts
-                        elif particle.e_num == 6:
-                            particle.i6 = particle.current_reef_idx
-                            particle.ts6 = particle.current_reef_ts0
-                            particle.dt6 = particle.current_reef_ts
-                        elif particle.e_num == 7:
-                            particle.i7 = particle.current_reef_idx
-                            particle.ts7 = particle.current_reef_ts0
-                            particle.dt7 = particle.current_reef_ts
-                        elif particle.e_num == 8:
-                            particle.i8 = particle.current_reef_idx
-                            particle.ts8 = particle.current_reef_ts0
-                            particle.dt8 = particle.current_reef_ts
-                        elif particle.e_num == 9:
-                            particle.i9 = particle.current_reef_idx
-                            particle.ts9 = particle.current_reef_ts0
-                            particle.dt9 = particle.current_reef_ts
-                        elif particle.e_num == 10:
-                            particle.i10 = particle.current_reef_idx
-                            particle.ts10 = particle.current_reef_ts0
-                            particle.dt10 = particle.current_reef_ts
-                        elif particle.e_num == 11:
-                            particle.i11 = particle.current_reef_idx
-                            particle.ts11 = particle.current_reef_ts0
-                            particle.dt11 = particle.current_reef_ts
-                        elif particle.e_num == 12:
-                            particle.i12 = particle.current_reef_idx
-                            particle.ts12 = particle.current_reef_ts0
-                            particle.dt12 = particle.current_reef_ts
-                        elif particle.e_num == 13:
-                            particle.i13 = particle.current_reef_idx
-                            particle.ts13 = particle.current_reef_ts0
-                            particle.dt13 = particle.current_reef_ts
-                        elif particle.e_num == 14:
-                            particle.i14 = particle.current_reef_idx
-                            particle.ts14 = particle.current_reef_ts0
-                            particle.dt14 = particle.current_reef_ts
-                        elif particle.e_num == 15:
-                            particle.i15 = particle.current_reef_idx
-                            particle.ts15 = particle.current_reef_ts0
-                            particle.dt15 = particle.current_reef_ts
-                        elif particle.e_num == 16:
-                            particle.i16 = particle.current_reef_idx
-                            particle.ts16 = particle.current_reef_ts0
-                            particle.dt16 = particle.current_reef_ts
-                        elif particle.e_num == 17:
-                            particle.i17 = particle.current_reef_idx
-                            particle.ts17 = particle.current_reef_ts0
-                            particle.dt17 = particle.current_reef_ts
-                        elif particle.e_num == 18:
-                            particle.i18 = particle.current_reef_idx
-                            particle.ts18 = particle.current_reef_ts0
-                            particle.dt18 = particle.current_reef_ts
-                        elif particle.e_num == 19:
-                            particle.i19 = particle.current_reef_idx
-                            particle.ts19 = particle.current_reef_ts0
-                            particle.dt19 = particle.current_reef_ts
-                        elif particle.e_num == 20:
-                            particle.i20 = particle.current_reef_idx
-                            particle.ts20 = particle.current_reef_ts0
-                            particle.dt20 = particle.current_reef_ts
-                        elif particle.e_num == 21:
-                            particle.i21 = particle.current_reef_idx
-                            particle.ts21 = particle.current_reef_ts0
-                            particle.dt21 = particle.current_reef_ts
-                        elif particle.e_num == 22:
-                            particle.i22 = particle.current_reef_idx
-                            particle.ts22 = particle.current_reef_ts0
-                            particle.dt22 = particle.current_reef_ts
-                        elif particle.e_num == 23:
-                            particle.i23 = particle.current_reef_idx
-                            particle.ts23 = particle.current_reef_ts0
-                            particle.dt23 = particle.current_reef_ts
-                        elif particle.e_num == 24:
-                            particle.i24 = particle.current_reef_idx
-                            particle.ts24 = particle.current_reef_ts0
-                            particle.dt24 = particle.current_reef_ts
-                        elif particle.e_num == 25:
-                            particle.i25 = particle.current_reef_idx
-                            particle.ts25 = particle.current_reef_ts0
-                            particle.dt25 = particle.current_reef_ts
-                        elif particle.e_num == 26:
-                            particle.i26 = particle.current_reef_idx
-                            particle.ts26 = particle.current_reef_ts0
-                            particle.dt26 = particle.current_reef_ts
-                        elif particle.e_num == 27:
-                            particle.i27 = particle.current_reef_idx
-                            particle.ts27 = particle.current_reef_ts0
-                            particle.dt27 = particle.current_reef_ts
-                        elif particle.e_num == 28:
-                            particle.i28 = particle.current_reef_idx
-                            particle.ts28 = particle.current_reef_ts0
-                            particle.dt28 = particle.current_reef_ts
-                        elif particle.e_num == 29:
-                            particle.i29 = particle.current_reef_idx
-                            particle.ts29 = particle.current_reef_ts0
-                            particle.dt29 = particle.current_reef_ts
-                        elif particle.e_num == 30:
-                            particle.i30 = particle.current_reef_idx
-                            particle.ts30 = particle.current_reef_ts0
-                            particle.dt30 = particle.current_reef_ts
-                        elif particle.e_num == 31:
-                            particle.i31 = particle.current_reef_idx
-                            particle.ts31 = particle.current_reef_ts0
-                            particle.dt31 = particle.current_reef_ts
-                        elif particle.e_num == 32:
-                            particle.i32 = particle.current_reef_idx
-                            particle.ts32 = particle.current_reef_ts0
-                            particle.dt32 = particle.current_reef_ts
-                        elif particle.e_num == 33:
-                            particle.i33 = particle.current_reef_idx
-                            particle.ts33 = particle.current_reef_ts0
-                            particle.dt33 = particle.current_reef_ts
-                        elif particle.e_num == 34:
-                            particle.i34 = particle.current_reef_idx
-                            particle.ts34 = particle.current_reef_ts0
-                            particle.dt34 = particle.current_reef_ts
-                        elif particle.e_num == 35:
-                            particle.i35 = particle.current_reef_idx
-                            particle.ts35 = particle.current_reef_ts0
-                            particle.dt35 = particle.current_reef_ts
-                        elif particle.e_num == 36:
-                            particle.i36 = particle.current_reef_idx
-                            particle.ts36 = particle.current_reef_ts0
-                            particle.dt36 = particle.current_reef_ts
-                        elif particle.e_num == 37:
-                            particle.i37 = particle.current_reef_idx
-                            particle.ts37 = particle.current_reef_ts0
-                            particle.dt37 = particle.current_reef_ts
-                        elif particle.e_num == 38:
-                            particle.i38 = particle.current_reef_idx
-                            particle.ts38 = particle.current_reef_ts0
-                            particle.dt38 = particle.current_reef_ts
-                        elif particle.e_num == 39:
-                            particle.i39 = particle.current_reef_idx
-                            particle.ts39 = particle.current_reef_ts0
-                            particle.dt39 = particle.current_reef_ts
-                        elif particle.e_num == 40:
-                            particle.i40 = particle.current_reef_idx
-                            particle.ts40 = particle.current_reef_ts0
-                            particle.dt40 = particle.current_reef_ts
-                        elif particle.e_num == 41:
-                            particle.i41 = particle.current_reef_idx
-                            particle.ts41 = particle.current_reef_ts0
-                            particle.dt41 = particle.current_reef_ts
-                        elif particle.e_num == 42:
-                            particle.i42 = particle.current_reef_idx
-                            particle.ts42 = particle.current_reef_ts0
-                            particle.dt42 = particle.current_reef_ts
-                        elif particle.e_num == 43:
-                            particle.i43 = particle.current_reef_idx
-                            particle.ts43 = particle.current_reef_ts0
-                            particle.dt43 = particle.current_reef_ts
-                        elif particle.e_num == 44:
-                            particle.i44 = particle.current_reef_idx
-                            particle.ts44 = particle.current_reef_ts0
-                            particle.dt44 = particle.current_reef_ts
-                        elif particle.e_num == 45:
-                            particle.i45 = particle.current_reef_idx
-                            particle.ts45 = particle.current_reef_ts0
-                            particle.dt45 = particle.current_reef_ts
-                        elif particle.e_num == 46:
-                            particle.i46 = particle.current_reef_idx
-                            particle.ts46 = particle.current_reef_ts0
-                            particle.dt46 = particle.current_reef_ts
-                        elif particle.e_num == 47:
-                            particle.i47 = particle.current_reef_idx
-                            particle.ts47 = particle.current_reef_ts0
-                            particle.dt47 = particle.current_reef_ts
-                        elif particle.e_num == 48:
-                            particle.i48 = particle.current_reef_idx
-                            particle.ts48 = particle.current_reef_ts0
-                            particle.dt48 = particle.current_reef_ts
-                        elif particle.e_num == 49:
-                            particle.i49 = particle.current_reef_idx
-                            particle.ts49 = particle.current_reef_ts0
-                            particle.dt49 = particle.current_reef_ts
+                            # Then reset current values to zero
+                            particle.current_reef_idx = 0
+                            particle.current_reef_ts0 = 0
+                            particle.current_reef_ts = 0
 
-                            particle.delete() # Delete particle, since no more reefs can be saved
+                            # Add to event number counter
+                            particle.e_num += 1
 
-                        # Then reset current values to zero
-                        particle.current_reef_idx = 0
-                        particle.current_reef_ts0 = 0
-                        particle.current_reef_ts = 0
+                        if new_event:
+                            # Add status to current (for current event) values
+                            # Timesteps at current reef
+                            particle.current_reef_ts = 1
 
-                        # Add to event number counter
-                        particle.e_num += 1
+                            # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
+                            particle.current_reef_ts0 = particle.ot - 1
 
-                    if new_event:
-                        # Add status to current (for current event) values
-                        # Timesteps at current reef
-                        particle.current_reef_ts = 1
-
-                        # Timesteps spent in the ocean overall upon arrival (minus one, before this step)
-                        particle.current_reef_ts0 = particle.ot - 1
-
-                        # Current reef group
-                        particle.current_reef_idx = particle.idx
+                            # Current reef group
+                            particle.current_reef_idx = particle.idx
 
                     # Finally, check if particle needs to be deleted
                     if particle.ot >= fieldset.max_age:
@@ -1896,6 +1936,12 @@ class Experiment():
         def deleteParticle(particle, fieldset, time):
             #  Recovery kernel to delete a particle if an error occurs
             particle.delete()
+
+        def deactivateParticle(particle, fieldset, time):
+            # Recovery kernel to deactivate a particle if an OOB error occurs
+            particle.active = 0
+            particle.lon = 40
+            particle.lat = -1
 
         # Print some basic statistics
         print('')
