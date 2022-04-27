@@ -1961,7 +1961,7 @@ class Experiment():
         self.pset.execute(self.kernel,
                           runtime=self.cfg['run_time'],
                           dt=self.cfg['dt'],
-                          recovery={ErrorCode.ErrorOutOfBounds: deleteParticle,
+                          recovery={ErrorCode.ErrorOutOfBounds: deactivateParticle,
                                     ErrorCode.ErrorInterpolation: deleteParticle},
                           output_file=self.trajectory_file)
 
