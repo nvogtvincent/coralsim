@@ -2669,13 +2669,24 @@ class Experiment():
                 #              rpm: releases per month
                 #              cpg: cells per release group
 
-                # f(i, j, t) = sum(ns[i, j]*rc[i]*ldens)/(rpm*lpc[i])
+                # f(i, j, t) = sum(ns[i, j]*rc[i]*ldens)
                 #              rc: reef cover (m2)
                 #              ldens: larvae per unit reef cover (m2) per month
 
                 # t(i, j, t) = sum(f(i, j, t)*(t0[i, j]+0.5*dt[i, j]))/sum(f(i, j, t))
                 #              Note that this is the flux-weighted time mean
                 #              t0 + dt: time taken for larva to travel from i to j
+
+                # Therefore (for rpm = 1, lpc = const):
+                # p[i1+i2, j1+j2, t] = (ns[i1, j1, t] + ns[i2, j2, t])/(lpc*(cpg[i1]+cpg[i2]))
+                # f[i1+i2, j1+j2, t] = ldens*(ns[i1, j1, t]*rc[i1] + ns[i2, j2, t]*rc[i2])
+                # t[i1+i2, j1+j2, t] = (ns[i1, j1, t]*rc[i1]*(t0[i1, j1]+0.5*dt[i1, j1]) + ns[i2, j2, t]*rc[i2]*(t0[i2, j2]+0.5*dt[i2, j2]))/(ns[i1, j1, t]*rc[i1] + ns[i2, j2, t]*rc[i2])
+
+                # So we need to save the following quantities:
+                # ns[i, j, t]
+                # ns[i, j, t]*rc[i]
+                # ns[i, j, t]*rc[i]*Dt[i, j]
+                # cpg[i]
 
                 p_matrix[:, :, ti] += np.histogram2d(grp_i_array, grp_j_array,
                                                      bins=[source_grp_bnds, sink_grp_bnds],
