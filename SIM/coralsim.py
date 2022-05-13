@@ -2758,12 +2758,12 @@ class Experiment():
                 raise Exception('Please supply biological parameters or generate matrix first.')
             else:
                 # Convert all units to days to prevent overflows from large numbers
-                self.cfg['a'] = np.array(kwargs['parameters']['a']*86400, dtype=np.float64)
-                self.cfg['b'] = np.array(kwargs['parameters']['b']*86400, dtype=np.float64)
-                self.cfg['tc'] = np.array(kwargs['parameters']['tc']/86400, dtype=np.float64)
-                self.cfg['μs'] = np.array(kwargs['parameters']['μs']*86400, dtype=np.float64)
+                self.cfg['a'] = np.array(kwargs['parameters']['a']*31536000, dtype=np.float64)
+                self.cfg['b'] = np.array(kwargs['parameters']['b']*31536000, dtype=np.float64)
+                self.cfg['tc'] = np.array(kwargs['parameters']['tc']/31536000, dtype=np.float64)
+                self.cfg['μs'] = np.array(kwargs['parameters']['μs']*31536000, dtype=np.float64)
                 self.cfg['σ'] = np.array(kwargs['parameters']['σ'], dtype=np.float64)
-                self.cfg['λ'] = np.array(kwargs['parameters']['λ']*86400, dtype=np.float64)
+                self.cfg['λ'] = np.array(kwargs['parameters']['λ']*31536000, dtype=np.float64)
                 self.cfg['ν'] = np.array(kwargs['parameters']['ν'], dtype=np.float64)
 
         if 'fh' not in kwargs:
@@ -2777,7 +2777,7 @@ class Experiment():
 
         plt_t0 = 0
         plt_t1 = 120
-        plt_t = np.linspace(plt_t0, plt_t1, num=200)
+        plt_t = np.linspace(plt_t0, plt_t1, num=200)/365
 
         f_competent = (self.cfg['a']/(self.cfg['a']-self.cfg['b']))*(np.exp(-self.cfg['b']*(plt_t-self.cfg['tc']))-np.exp(-self.cfg['a']*(plt_t-self.cfg['tc'])))
         f_competent[plt_t-self.cfg['tc'] < 0] = 0
@@ -2791,6 +2791,7 @@ class Experiment():
         f_comp_surv = f_competent*f_surv
 
         plt_t[0] = plt_t[1]/10
+        plt_t *= 365
 
         ax.set_xlim([0, self.cfg['run_time'].days])
         ax.set_ylim([0, 1])
