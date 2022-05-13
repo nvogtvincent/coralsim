@@ -244,10 +244,10 @@ class Experiment():
             self.cfg['test_params'] = kwargs['test_params']
 
 
-        @njit
+        # @njit
         def integrate_event(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, dt):
 
-            sol = np.zeros_like(int0, dtype=np.float64)
+            sol = np.zeros_like(int0, dtype=np.float32)
 
             # Precompute reused terms
             gc_0 = b-a+(μs*fr)
@@ -257,20 +257,22 @@ class Experiment():
             f3_gc0 = np.exp(t0*gc_0)
 
             # Integrate
-            for h, rk_coef in zip(np.array([0, 0.5, 1], dtype=np.float64), [1/6, 2/3, 1/6]):
+            for h, rk_coef in zip(np.array([0, 0.5, 1], dtype=np.float32),
+                                  np.array([1/6, 2/3, 1/6], dtype=np.float32)):
+
                 if h == 0:
                     t = t0
                 else:
                     t = t0 + h*dt
 
                 if σ != 0:
-                    surv_t = (1. - σ*(λ*(t + tc))**ν)**(1/σ)
+                    surv_t = ((1. - σ*(λ*(t + tc))**ν)**(1/σ)).astype(np.float32)
                 else:
-                    surv_t = np.exp(-(λ*t)**ν)
+                    surv_t = np.exp(-(λ*t)**ν).astype(np.float32)
 
                 if h == 0:
                     f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*psi0)
-                    f_3 = np.float64([0])
+                    f_3 = np.float32([0])
                 else:
                     f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*(psi0+fr*(t-t0)))
                     f_3 = np.exp(t*gc_0) - f3_gc0
@@ -283,7 +285,7 @@ class Experiment():
 
                 sol += rk_coef*f_1*int1
 
-            return (a*μs*fr*dt*sol).astype(np.float32), int1.astype(np.float32)
+            return a*μs*fr*dt*sol, int1
 
         self.integrate_event = integrate_event
 
@@ -2103,16 +2105,16 @@ class Experiment():
             self.generate_dict()
 
         if self.cfg['test_type'] == 'kernel':
-            # Convert all units to days to avoid overflow in calculations
-            self.cfg['a'] = np.array(self.cfg['test_params']['a']*86400, dtype=np.float64)
-            self.cfg['b'] = np.array(self.cfg['test_params']['b']*86400, dtype=np.float64)
-            self.cfg['tc'] = np.array(self.cfg['test_params']['tc']/86400, dtype=np.float64)
-            self.cfg['μs'] = np.array(self.cfg['test_params']['μs']*86400, dtype=np.float64)
-            self.cfg['σ'] = np.array(self.cfg['test_params']['σ'], dtype=np.float64)
-            self.cfg['λ'] = np.array(self.cfg['test_params']['λ']*86400, dtype=np.float64)
-            self.cfg['ν'] = np.array(self.cfg['test_params']['ν'], dtype=np.float64)
+            # Convert all units to per year to avoid overflows
+            self.cfg['a'] = np.array(self.cfg['test_params']['a']*31536000, dtype=np.float32)
+            self.cfg['b'] = np.array(self.cfg['test_params']['b']*31536000, dtype=np.float32)
+            self.cfg['tc'] = np.array(self.cfg['test_params']['tc']/31536000, dtype=np.float32)
+            self.cfg['μs'] = np.array(self.cfg['test_params']['μs']*31536000, dtype=np.float32)
+            self.cfg['σ'] = np.array(self.cfg['test_params']['σ'], dtype=np.float32)
+            self.cfg['λ'] = np.array(self.cfg['test_params']['λ']*31536000, dtype=np.float32)
+            self.cfg['ν'] = np.array(self.cfg['test_params']['ν'], dtype=np.float32)
 
-            self.cfg['dt']  = self.cfg['dt'].total_seconds()/86400
+            self.cfg['dt']  = np.array(self.cfg['dt'].total_seconds()/31536000, dtype=np.float32)
 
             with Dataset(self.fh['traj'], mode='r') as nc:
                 self.cfg['max_events'] = nc.e_num
@@ -2130,14 +2132,18 @@ class Experiment():
 
                 for i in range(self.cfg['max_events']):
                     idx_array[:, i] = nc.variables['i' + str(i)][:, 0]
-                    t0_array[:, i] = nc.variables['ts' + str(i)][:, 0]*self.cfg['dt']-self.cfg['tc'] # Time at arrival
+                    t0_array[:, i] = (nc.variables['ts' + str(i)][:, 0]*self.cfg['dt']-self.cfg['tc']) # Time at arrival
                     dt_array[:, i] = nc.variables['dt' + str(i)][:, 0]*self.cfg['dt'] # Time spent at site
                     ns_test_array[:, i] = nc.variables['Ns' + str(i)][:, 0]
 
+
+
             # Adjust times for events that are partially pre-competent
             dt_array[t0_array < 0] += t0_array[t0_array < 0]
+            t0_array[t0_array < 0] = 0
 
-            # Now mask out invalid events (pre-competent, or null)
+            # Now, invalid events have dt_array < 0 or idx_array == 0
+            # Now mask out invalid events (pre-competent, or null) - i.e. those with remaining -ve dt
             t0_array[t0_array < 0] = 9999
             sort_idx = np.argsort(t0_array, axis=1)
             t0_array = np.take_along_axis(t0_array, sort_idx, axis=1)
@@ -2176,9 +2182,9 @@ class Experiment():
 
             # Now generate an array containing the reef fraction, t0, and dt for each index
             fr_array = translate(idx_array, self.dicts['rf'])
-            fr_array = np.ma.masked_array(fr_array, mask=mask) # Reef fraction
-            t0_array = np.ma.masked_array(t0_array, mask=mask) # Time at arrival
-            dt_array = np.ma.masked_array(dt_array, mask=mask) # Time spent at site
+            fr_array[mask] = 0 # Reef fraction
+            t0_array[mask] = 0 # Time at arrival
+            dt_array[mask] = 0 # Time spent at site
 
             # Now calculate the fractional losses
             for i in range(n_events_reduced):
@@ -2191,19 +2197,15 @@ class Experiment():
                 t0 = t0_array[:, i]
                 dt = dt_array[:, i]
 
-                ns_array[:, i], int0 = self.integrate_event(psi0.astype(np.float64),
-                                                            int0.astype(np.float64),
-                                                            fr.astype(np.float64),
-                                                            self.cfg['a'].astype(np.float64),
-                                                            self.cfg['b'].astype(np.float64),
-                                                            self.cfg['tc'].astype(np.float64),
-                                                            self.cfg['μs'].astype(np.float64),
-                                                            self.cfg['σ'].astype(np.float64),
-                                                            self.cfg['λ'].astype(np.float64),
-                                                            self.cfg['ν'].astype(np.float64),
-                                                            t0.astype(np.float64),
-                                                            t1_prev.astype(np.float64),
-                                                            dt.astype(np.float64))
+                ns_array[:, i], int0 = self.integrate_event(psi0, int0, fr,
+                                                            self.cfg['a'],
+                                                            self.cfg['b'],
+                                                            self.cfg['tc'],
+                                                            self.cfg['μs'],
+                                                            self.cfg['σ'],
+                                                            self.cfg['λ'],
+                                                            self.cfg['ν'],
+                                                            t0, t1_prev, dt)
 
                 t1_prev = t0 + dt
                 psi0 = psi0 + fr*dt
@@ -2232,7 +2234,7 @@ class Experiment():
 
             plt_t0 = 0
             plt_t1 = self.cfg['run_time'].days
-            plt_t = np.linspace(plt_t0, plt_t1, num=200)
+            plt_t = np.linspace(plt_t0, plt_t1, num=200)/365
 
             f_competent = (self.cfg['a']/(self.cfg['a']-self.cfg['b']))*(np.exp(-self.cfg['b']*(plt_t-self.cfg['tc']))-np.exp(-self.cfg['a']*(plt_t-self.cfg['tc'])))
             f_competent[plt_t-self.cfg['tc'] < 0] = 0
@@ -2244,6 +2246,8 @@ class Experiment():
 
             plt_t[0] = plt_t[1]/10
             μm = (self.cfg['λ']*self.cfg['ν']*(self.cfg['λ']*plt_t)**(self.cfg['ν']-1))/(1-self.cfg['σ']*(self.cfg['λ']*plt_t)**self.cfg['ν'])
+
+            plt_t *= 365
 
             ax.set_xlim([0, self.cfg['run_time'].days])
             ax.set_ylim([0, 1])
@@ -2435,14 +2439,14 @@ class Experiment():
         if 'parameters' not in kwargs.keys():
             raise KeyError('Please supply a parameters dictionary.')
         else:
-            # Convert all units to days to prevent overflows from large numbers
-            self.cfg['a'] = np.array(kwargs['parameters']['a']*86400, dtype=np.float64)
-            self.cfg['b'] = np.array(kwargs['parameters']['b']*86400, dtype=np.float64)
-            self.cfg['tc'] = np.array(kwargs['parameters']['tc']/86400, dtype=np.float64)
-            self.cfg['μs'] = np.array(kwargs['parameters']['μs']*86400, dtype=np.float64)
-            self.cfg['σ'] = np.array(kwargs['parameters']['σ'], dtype=np.float64)
-            self.cfg['λ'] = np.array(kwargs['parameters']['λ']*86400, dtype=np.float64)
-            self.cfg['ν'] = np.array(kwargs['parameters']['ν'], dtype=np.float64)
+            # Convert all units to years to prevent overflows from large numbers
+            self.cfg['a'] = np.array(kwargs['parameters']['a']*31536000, dtype=np.float32)
+            self.cfg['b'] = np.array(kwargs['parameters']['b']*31536000, dtype=np.float32)
+            self.cfg['tc'] = np.array(kwargs['parameters']['tc']/31536000, dtype=np.float32)
+            self.cfg['μs'] = np.array(kwargs['parameters']['μs']*31536000, dtype=np.float32)
+            self.cfg['σ'] = np.array(kwargs['parameters']['σ'], dtype=np.float32)
+            self.cfg['λ'] = np.array(kwargs['parameters']['λ']*31536000, dtype=np.float32)
+            self.cfg['ν'] = np.array(kwargs['parameters']['ν'], dtype=np.float32)
 
         if 'fh' not in kwargs.keys():
             raise KeyError('Please supply a list of files to analyse.')
@@ -2473,7 +2477,7 @@ class Experiment():
         with Dataset(fh_list[0], mode='r') as nc:
             self.cfg['max_events'] = nc.e_num
 
-            self.cfg['dt'] = int(nc.timestep_seconds)/86400
+            self.cfg['dt'] = int(nc.timestep_seconds)/31536000
             self.cfg['lpc'] = int(nc.larvae_per_cell)
             self.cfg['partitions'] = int(nc.partitions)
 
@@ -2483,7 +2487,7 @@ class Experiment():
                 else:
                     self.cfg['lpc'] /= self.cfg['subset']
 
-            if self.cfg['tc']*86400 < int(nc.min_competency_seconds):
+            if self.cfg['tc']*31536000 < int(nc.min_competency_seconds):
                 raise Exception('Minimum competency chosen is smaller than the value used at run-time (' + str(int(nc.min_competency_seconds)) +'s).')
 
         # Get the full time range
@@ -2500,7 +2504,6 @@ class Experiment():
 
         t0_list = np.array(t0_list)
         n_months = (t0_list.max()-t0_list.min()+1)*12
-        matrix_t_axis = np.arange(t0_list.min(), t0_list.max()+1, 1/12)
         root_y = t0_list.min()
 
         if 'partitions' not in self.cfg:
@@ -2582,9 +2585,11 @@ class Experiment():
 
                 # Adjust times for events that are partially pre-competent
                 dt_array[t0_array < 0] += t0_array[t0_array < 0]
+                t0_array[t0_array < 0] = 0
 
-                # Now mask out invalid events (pre-competent, or null)
-                t0_array[t0_array < 0] = 9999
+                # Now, invalid events have dt_array < 0 or idx_array == 0
+                # Now mask out invalid events (pre-competent, or null) - i.e. those with remaining -ve dt
+                t0_array[dt_array < 0] = 9999
                 sort_idx = np.argsort(t0_array, axis=1)
                 t0_array = np.take_along_axis(t0_array, sort_idx, axis=1)
                 dt_array = np.take_along_axis(dt_array, sort_idx, axis=1)
@@ -2611,9 +2616,9 @@ class Experiment():
 
             # Now generate an array containing the reef fraction, t0, and dt for each index
             fr_array = translate(idx_array, self.dicts['rf'])
-            fr_array = np.ma.masked_array(fr_array, mask=mask) # Reef fraction
-            t0_array = np.ma.masked_array(t0_array, mask=mask) # Time at arrival
-            dt_array = np.ma.masked_array(dt_array, mask=mask) # Time spent at site
+            fr_array[mask] = 0 # Reef fraction
+            t0_array[mask] = 0 # Time at arrival
+            dt_array[mask] = 0 # Time spent at site
 
             for i in range(n_events_reduced):
                 if i == 0:
@@ -2625,27 +2630,18 @@ class Experiment():
                 t0 = t0_array[:, i]
                 dt = dt_array[:, i]
 
-                # Note - this integration is carried out in double precision
-                # due to some of the very large numbers in sub-steps. There
-                # will definitely be a more efficient/precise way of doing
-                # this, but I sadly do not have the time right now...
-                ns_array[:, i], int0 = self.integrate_event(psi0.astype(np.float64),
-                                                            int0.astype(np.float64),
-                                                            fr.astype(np.float64),
-                                                            self.cfg['a'].astype(np.float64),
-                                                            self.cfg['b'].astype(np.float64),
-                                                            self.cfg['tc'].astype(np.float64),
-                                                            self.cfg['μs'].astype(np.float64),
-                                                            self.cfg['σ'].astype(np.float64),
-                                                            self.cfg['λ'].astype(np.float64),
-                                                            self.cfg['ν'].astype(np.float64),
-                                                            t0.astype(np.float64),
-                                                            t1_prev.astype(np.float64),
-                                                            dt.astype(np.float64))
+                ns_array[:, i], int0 = self.integrate_event(psi0, int0, fr,
+                                                            self.cfg['a'],
+                                                            self.cfg['b'],
+                                                            self.cfg['tc'],
+                                                            self.cfg['μs'],
+                                                            self.cfg['σ'],
+                                                            self.cfg['λ'],
+                                                            self.cfg['ν'],
+                                                            t0, t1_prev, dt)
 
                 t1_prev = t0 + dt
                 psi0 = psi0 + fr*dt
-
 
             # Compress earlier to accelerate calculations
             ns_array = np.ma.masked_array(ns_array, mask=mask).compressed()
@@ -2653,6 +2649,8 @@ class Experiment():
             dt_array = np.ma.masked_array(dt_array, mask=mask).compressed()
 
             assert np.all(ns_array >= 0)
+            assert np.all(t0_array >= 0)
+            assert np.all(dt_array >= 0)
 
             # From the index array, extract group
             grp_array = np.floor(idx_array/(2**8)).astype(np.uint8)
@@ -2669,16 +2667,10 @@ class Experiment():
             rc0_array[:] = translate(idx0_array, self.dicts['rc'])
             rc0_array = np.ma.masked_array(rc0_array, mask=mask).compressed()
 
-            # Extract origin number of cells per group and project
-            # cpg0_array = np.zeros_like(idx_array, dtype=np.uint16)
-            # cpg0_array[:] = translate(grp0, self.dicts['grp_numcell'])
-            # cpg0_array = np.ma.masked_array(cpg0_array, mask=mask).compressed()
-
             filter_mask = 1-np.isin(grp0_array, source_grp_list)*np.isin(grp0_array, sink_grp_list)
             grp_i_array = np.ma.masked_array(grp0_array, mask=filter_mask).compressed()
             grp_j_array = np.ma.masked_array(grp_array, mask=filter_mask).compressed()
             rc_i_array = np.ma.masked_array(rc0_array, mask=filter_mask).compressed()
-            # cpg_i_array = np.ma.masked_array(cpg0_array, mask=filter_mask).compressed().astype(np.float32)
             ns_ij_array = np.ma.masked_array(ns_array, mask=filter_mask).compressed()
             t0_ij_array = np.ma.masked_array(t0_array, mask=filter_mask).compressed()
             dt_j_array = np.ma.masked_array(dt_array, mask=filter_mask).compressed()
