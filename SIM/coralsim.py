@@ -208,7 +208,7 @@ class Experiment():
                  'grid' : 'C',
 
                  # Maximum number of events
-                 'e_num' : 50,
+                 'e_num' : 60,
 
                  # Velocity interpolation method
                  'interp_method': 'cgrid_velocity',
@@ -1878,6 +1878,46 @@ class Experiment():
                                 particle.i49 = particle.current_reef_idx
                                 particle.ts49 = particle.current_reef_ts0
                                 particle.dt49 = particle.current_reef_ts
+                            elif particle.e_num == 50:
+                                particle.i50 = particle.current_reef_idx
+                                particle.ts50 = particle.current_reef_ts0
+                                particle.dt50 = particle.current_reef_ts
+                            elif particle.e_num == 51:
+                                particle.i51 = particle.current_reef_idx
+                                particle.ts51 = particle.current_reef_ts0
+                                particle.dt51 = particle.current_reef_ts
+                            elif particle.e_num == 52:
+                                particle.i52 = particle.current_reef_idx
+                                particle.ts52 = particle.current_reef_ts0
+                                particle.dt52 = particle.current_reef_ts
+                            elif particle.e_num == 53:
+                                particle.i53 = particle.current_reef_idx
+                                particle.ts53 = particle.current_reef_ts0
+                                particle.dt53 = particle.current_reef_ts
+                            elif particle.e_num == 54:
+                                particle.i54 = particle.current_reef_idx
+                                particle.ts54 = particle.current_reef_ts0
+                                particle.dt54 = particle.current_reef_ts
+                            elif particle.e_num == 55:
+                                particle.i55 = particle.current_reef_idx
+                                particle.ts55 = particle.current_reef_ts0
+                                particle.dt55 = particle.current_reef_ts
+                            elif particle.e_num == 56:
+                                particle.i56 = particle.current_reef_idx
+                                particle.ts56 = particle.current_reef_ts0
+                                particle.dt56 = particle.current_reef_ts
+                            elif particle.e_num == 57:
+                                particle.i57 = particle.current_reef_idx
+                                particle.ts57 = particle.current_reef_ts0
+                                particle.dt57 = particle.current_reef_ts
+                            elif particle.e_num == 58:
+                                particle.i58 = particle.current_reef_idx
+                                particle.ts58 = particle.current_reef_ts0
+                                particle.dt58 = particle.current_reef_ts
+                            elif particle.e_num == 59:
+                                particle.i59 = particle.current_reef_idx
+                                particle.ts59 = particle.current_reef_ts0
+                                particle.dt59 = particle.current_reef_ts
 
                                 particle.active = 0 # Deactivate particle, since no more reefs can be saved
 
@@ -2196,7 +2236,10 @@ class Experiment():
 
             f_competent = (self.cfg['a']/(self.cfg['a']-self.cfg['b']))*(np.exp(-self.cfg['b']*(plt_t-self.cfg['tc']))-np.exp(-self.cfg['a']*(plt_t-self.cfg['tc'])))
             f_competent[plt_t-self.cfg['tc'] < 0] = 0
-            f_surv = (1 - self.cfg['σ']*(self.cfg['λ']*(plt_t))**self.cfg['ν'])**(1/self.cfg['σ'])
+            if self.cfg['σ'] != 0:
+                f_surv = (1 - self.cfg['σ']*(self.cfg['λ']*(plt_t))**self.cfg['ν'])**(1/self.cfg['σ'])
+            else:
+                f_surv = np.exp(-(self.cfg['λ']*plt_t)**self.cfg['ν'])
             f_comp_surv = f_competent*f_surv
 
             plt_t[0] = plt_t[1]/10
@@ -2686,23 +2729,103 @@ class Experiment():
                                                 weights=(ns_ij_array*rc_i_array*self.cfg['ldens']*
                                                          (self.cfg['tc'] + t0_ij_array + 0.5*dt_j_array)))[0]
 
-            # Now convert to xarray
-            matrix = xr.Dataset(data_vars=dict(ns=(['source_group', 'sink_group', 'time'], matrix1),
-                                               ns_rc=(['source_group', 'sink_group', 'time'], matrix2),
-                                               ns_rc_t=(['source_group', 'sink_group', 'time'], matrix3),
-                                               cpg=(['source_group'], translate(source_grp_list, self.dicts['grp_numcell']))),
-                                coords=dict(source_group=source_grp_list, sink_group=sink_grp_list,
-                                            time=pd.date_range(start=datetime(year=root_y, month=1, day=1, hour=0),
-                                                               periods=n_months, freq='M')),
-                                attrs=dict(a=self.cfg['a'],
-                                           b=self.cfg['b'],
-                                           tc=self.cfg['tc'],
-                                           μs=self.cfg['μs'],
-                                           σ=self.cfg['σ'],
-                                           λ=self.cfg['λ'],
-                                           ν=self.cfg['ν'],
-                                           configuration=self.cfg['preset']))
+        # Now convert to xarray
+        matrix = xr.Dataset(data_vars=dict(ns=(['source_group', 'sink_group', 'time'], matrix1),
+                                           ns_rc=(['source_group', 'sink_group', 'time'], matrix2),
+                                           ns_rc_t=(['source_group', 'sink_group', 'time'], matrix3),
+                                           cpg=(['source_group'], translate(source_grp_list, self.dicts['grp_numcell']))),
+                            coords=dict(source_group=source_grp_list, sink_group=sink_grp_list,
+                                        time=pd.date_range(start=datetime(year=root_y, month=1, day=1, hour=0),
+                                                           periods=n_months, freq='M')),
+                            attrs=dict(a=self.cfg['a'],
+                                       b=self.cfg['b'],
+                                       tc=self.cfg['tc'],
+                                       μs=self.cfg['μs'],
+                                       σ=self.cfg['σ'],
+                                       λ=self.cfg['λ'],
+                                       ν=self.cfg['ν'],
+                                       configuration=self.cfg['preset']))
+
+        self.status['matrix'] = True
 
         return matrix
 
-        self.status['matrix'] = True
+    def plot_parameters(self, **kwargs):
+
+        """
+        Parameters (* are required)
+        ----------
+        kwargs :
+            fh*: File handle for figure
+            parameters*: Postproc parameters (in dict) [if matrix not yet run]
+
+        """
+
+        if not self.status['matrix']:
+            if 'parameters' not in kwargs:
+                raise Exception('Please supply biological parameters or generate matrix first.')
+            else:
+                # Convert all units to days to prevent overflows from large numbers
+                self.cfg['a'] = np.array(kwargs['parameters']['a']*86400, dtype=np.float64)
+                self.cfg['b'] = np.array(kwargs['parameters']['b']*86400, dtype=np.float64)
+                self.cfg['tc'] = np.array(kwargs['parameters']['tc']/86400, dtype=np.float64)
+                self.cfg['μs'] = np.array(kwargs['parameters']['μs']*86400, dtype=np.float64)
+                self.cfg['σ'] = np.array(kwargs['parameters']['σ'], dtype=np.float64)
+                self.cfg['λ'] = np.array(kwargs['parameters']['λ']*86400, dtype=np.float64)
+                self.cfg['ν'] = np.array(kwargs['parameters']['ν'], dtype=np.float64)
+
+        if 'fh' not in kwargs:
+            print('Using default file name.')
+            fh = 'biological_parameters.png'
+        else:
+            fh = kwargs['fh']
+
+        # Plot larval mortality curves
+        f, ax = plt.subplots(1, 1, figsize=(10, 10))
+
+        plt_t0 = 0
+        plt_t1 = 120
+        plt_t = np.linspace(plt_t0, plt_t1, num=200)
+
+        f_competent = (self.cfg['a']/(self.cfg['a']-self.cfg['b']))*(np.exp(-self.cfg['b']*(plt_t-self.cfg['tc']))-np.exp(-self.cfg['a']*(plt_t-self.cfg['tc'])))
+        f_competent[plt_t-self.cfg['tc'] < 0] = 0
+        if self.cfg['σ'] != 0:
+            f_surv = (1 - self.cfg['σ']*(self.cfg['λ']*(plt_t))**self.cfg['ν'])**(1/self.cfg['σ'])
+        else:
+            f_surv = np.exp(-(self.cfg['λ']*plt_t)**self.cfg['ν'])
+
+        μm = (self.cfg['λ']*self.cfg['ν']*(self.cfg['λ']*plt_t)**(self.cfg['ν']-1))/(1-self.cfg['σ']*(self.cfg['λ']*plt_t)**self.cfg['ν'])
+
+        f_comp_surv = f_competent*f_surv
+
+        plt_t[0] = plt_t[1]/10
+
+        ax.set_xlim([0, self.cfg['run_time'].days])
+        ax.set_ylim([0, 1])
+        ax.plot(plt_t/1, f_competent, 'k--', label='Fraction competent')
+        ax.plot(plt_t/1, f_surv, 'k:', label='Fraction alive')
+        ax.plot(plt_t/1, f_comp_surv, 'k-', label='Fraction alive and competent')
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.set_xlabel('Time since release (days)')
+        ax.set_ylabel('Proportion of larvae')
+        ax.legend(frameon=False, loc=(0.65, 0.9))
+
+        ax2 = ax.twinx()
+        ax2.set_yscale('log')
+        ax2.plot(plt_t, μm, 'r-', label='Mortality rate per day')
+        ax2.set_ylabel('Mortality rate (1/d)', color='r')
+        ax2.yaxis.set_label_position('right')
+        ax2.yaxis.tick_right()
+        ax2.legend(frameon=False, loc=(0.65,0.85))
+        ax2.spines['top'].set_visible(False)
+        ax2.spines['left'].set_visible(False)
+        ax2.spines['bottom'].set_visible(False)
+        ax2.spines['right'].set_edgecolor('r')
+        ax2.tick_params(color='r', labelcolor='r')
+
+        plt.savefig(self.dirs['fig'] + fh, dpi=300)
+
+
+
+
