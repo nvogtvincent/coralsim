@@ -359,7 +359,6 @@ for i, iso_code in tqdm(enumerate(iso_list), total=len(iso_list)):
     #       that are physically reasonable, rather than some robust application
     #       of clustering.
 
-
     # 1. Carry out agglomerative clustering (X, model)
     lon_w, lat_w = np.meshgrid(lon_rho_w, lat_rho_w)
     lon_w = lon_w[eez_grid_w == iso_code]

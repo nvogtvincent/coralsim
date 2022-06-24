@@ -34,13 +34,13 @@ try:
     eez_given = True
 except:
     eez_given = False
-    
+
 
 pn_per_cell = 2**14
 t0          = datetime(year=year,
                        month=month,
                        day=day, hour=0)
-dt          = timedelta(minutes=15)
+dt          = timedelta(minutes=10)
 run_time    = timedelta(days=120)
 
 ##############################################################################
@@ -55,18 +55,18 @@ if eez_given:
 else:
     experiment = Experiment('WINDS_coralsim_' + str(year) + '_' + str(month) +
                             '_' + str(day) + '_' + str(part) + '_' + str(partitions))
-                            
+
 # Run experiment
 experiment.config(dirs, preset='WINDS')
 experiment.generate_fieldset()
 if eez_given:
    experiment.generate_particleset(num=pn_per_cell, t0=t0, filters={'eez': [eez]},
-                                   min_competency=timedelta(days=2), dt=dt,
+                                   min_competency=timedelta(days=0), dt=dt,
                                    run_time=run_time, partitions=partitions,
                                    part=part)
 else:
-    experiment.generate_particleset(num=pn_per_cell, t0=t0, 
-                                   min_competency=timedelta(days=2), dt=dt,
+    experiment.generate_particleset(num=pn_per_cell, t0=t0,
+                                   min_competency=timedelta(days=0), dt=dt,
                                    run_time=run_time, partitions=partitions,
                                    part=part)
 experiment.run()
