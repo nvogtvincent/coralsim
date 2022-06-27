@@ -268,7 +268,7 @@ class Experiment():
                 if σ != 0:
                     surv_t = ((1. - σ*(λ*(t + tc))**ν)**(1/σ)).astype(np.float32)
                 else:
-                    surv_t = np.exp(-(λ*t)**ν).astype(np.float32)
+                    surv_t = np.exp(-(λ*(t + tc))**ν).astype(np.float32)
 
                 if h == 0:
                     f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*psi0)
@@ -2136,40 +2136,29 @@ class Experiment():
                     dt_array[:, i] = nc.variables['dt' + str(i)][:, 0]*self.cfg['dt'] # Time spent at site
                     ns_test_array[:, i] = nc.variables['Ns' + str(i)][:, 0]
 
-
-
             # Adjust times for events that are partially pre-competent
+            idx_array[t0_array + dt_array < 0] = 0 # Corresponds to events that are entirely pre-competent
             dt_array[t0_array < 0] += t0_array[t0_array < 0]
             t0_array[t0_array < 0] = 0
 
             # Now, invalid events have dt_array < 0 or idx_array == 0
             # Now mask out invalid events (pre-competent, or null) - i.e. those with remaining -ve dt
-            t0_array[t0_array < 0] = 9999
+            t0_array[idx_array == 0] = 9999
+            dt_array[idx_array == 0] = 9999
             sort_idx = np.argsort(t0_array, axis=1)
-            t0_array = np.take_along_axis(t0_array, sort_idx, axis=1)
+            t0_array = np.take_along_axis(t0_array, sort_idx, axis=1) # Removes entirely incompetent events
             dt_array = np.take_along_axis(dt_array, sort_idx, axis=1)
             idx_array = np.take_along_axis(idx_array, sort_idx, axis=1)
             ns_test_array = np.take_along_axis(ns_test_array, sort_idx, axis=1)
 
-            mask_ = (t0_array != 9999)
-
-            # Now remove entirely invalid columns
-            t0_array = t0_array[:, np.any(mask_, axis=0)]
-            dt_array = dt_array[:, np.any(mask_, axis=0)]
-            idx_array = idx_array[:, np.any(mask_, axis=0)]
-            ns_test_array = ns_test_array[:, np.any(mask_, axis=0)]
             mask = (t0_array != 9999)
-
-            # Now remove entirely invalid rows
-            t0_array = t0_array[np.any(mask_, axis=1), :]
-            dt_array = dt_array[np.any(mask_, axis=1), :]
-            idx_array = idx_array[np.any(mask_, axis=1), :]
-            ns_test_array = ns_test_array[np.any(mask_, axis=1), :]
-            mask = (t0_array == 9999)
 
             ns_array = np.zeros(np.shape(mask), dtype=np.float32)
             n_traj_reduced = np.shape(mask)[0]
             n_events_reduced = np.shape(mask)[1]
+
+            t0_array[mask] = 0
+            dt_array[mask] = 0
 
             # Now generate an array containing the reef fraction for each index
             def translate(c1, c2):
@@ -2584,31 +2573,19 @@ class Experiment():
                 idx0_array = nc.variables['idx0'][:][sub_id]
 
                 # Adjust times for events that are partially pre-competent
+                idx_array[t0_array + dt_array < 0] = 0 # Corresponds to events that are entirely pre-competent
                 dt_array[t0_array < 0] += t0_array[t0_array < 0]
                 t0_array[t0_array < 0] = 0
 
                 # Now, invalid events have dt_array < 0 or idx_array == 0
                 # Now mask out invalid events (pre-competent, or null) - i.e. those with remaining -ve dt
-                t0_array[dt_array < 0] = 9999
-                sort_idx = np.argsort(t0_array, axis=1)
-                t0_array = np.take_along_axis(t0_array, sort_idx, axis=1)
-                dt_array = np.take_along_axis(dt_array, sort_idx, axis=1)
-                idx_array = np.take_along_axis(idx_array, sort_idx, axis=1)
+                # t0_array[idx_array == 0] = 9999
+                # sort_idx = np.argsort(t0_array, axis=1)
+                # t0_array = np.take_along_axis(t0_array, sort_idx, axis=1) # Removes entirely incompetent events
+                # dt_array = np.take_along_axis(dt_array, sort_idx, axis=1)
+                # idx_array = np.take_along_axis(idx_array, sort_idx, axis=1)
 
-                mask_ = (t0_array != 9999)
-
-                # Now remove entirely invalid columns
-                t0_array = t0_array[:, np.any(mask_, axis=0)]
-                dt_array = dt_array[:, np.any(mask_, axis=0)]
-                idx_array = idx_array[:, np.any(mask_, axis=0)]
-                mask = (t0_array != 9999)
-
-                # Now remove entirely invalid rows
-                t0_array = t0_array[np.any(mask_, axis=1), :]
-                dt_array = dt_array[np.any(mask_, axis=1), :]
-                idx_array = idx_array[np.any(mask_, axis=1), :]
-                idx0_array = idx0_array[np.any(mask_, axis=1)]
-                mask = (t0_array == 9999)
+                mask = (idx_array == 0)
 
                 ns_array = np.zeros(np.shape(mask), dtype=np.float32)
                 n_traj_reduced = np.shape(mask)[0]
