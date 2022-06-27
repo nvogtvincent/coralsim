@@ -12,18 +12,18 @@ experiments in OceanParcels.
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
-import matplotlib.colors as colors
 import cmasher as cmr
 import pandas as pd
 import cartopy.crs as ccrs
 import xarray as xr
+import numexpr as ne
 from glob import glob
 from parcels import (Field, FieldSet, ParticleSet, JITParticle, AdvectionRK4,
                      ErrorCode, Variable)
 from netCDF4 import Dataset
 from datetime import timedelta, datetime
 from tqdm import tqdm
-from numba import njit
+
 
 class Experiment():
     """
@@ -250,11 +250,11 @@ class Experiment():
             sol = np.zeros_like(int0, dtype=np.float32)
 
             # Precompute reused terms
-            gc_0 = b-a+(μs*fr)
-            gc_1 = μs*psi0
+            gc_0 = ne.evaluate("b-a+(μs*fr)")
+            gc_1 = ne.evaluate("μs*psi0")
 
-            f2_gc0 = np.exp(t0*(b-a))
-            f3_gc0 = np.exp(t0*gc_0)
+            f2_gc0 = ne.evaluate("exp(t0*(b-a))")
+            f3_gc0 = ne.evaluate("exp(t0*gc_0)")
 
             # Integrate
             for h, rk_coef in zip(np.array([0, 0.5, 1], dtype=np.float32),
@@ -263,29 +263,29 @@ class Experiment():
                 if h == 0:
                     t = t0
                 else:
-                    t = t0 + h*dt
+                    t = ne.evaluate("t0 + h*dt")
 
                 if σ != 0:
-                    surv_t = ((1. - σ*(λ*(t + tc))**ν)**(1/σ)).astype(np.float32)
+                    surv_t = ne.evaluate("((1. - σ*(λ*(t + tc))**ν)**(1/σ))")
                 else:
-                    surv_t = np.exp(-(λ*(t + tc))**ν).astype(np.float32)
+                    surv_t = ne.evaluate("exp(-(λ*(t + tc))**ν)")
 
                 if h == 0:
-                    f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*psi0)
+                    f_1 = ne.evaluate("surv_t*exp(-b*t)*exp(-μs*psi0)")
                     f_3 = np.float32([0])
                 else:
-                    f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*(psi0+fr*(t-t0)))
-                    f_3 = np.exp(t*gc_0) - f3_gc0
+                    f_1 = ne.evaluate("surv_t*exp(-b*t)*exp(-μs*(psi0+fr*(t-t0)))")
+                    f_3 = ne.evaluate("exp(t*gc_0) - f3_gc0")
 
-                f_2 = f2_gc0 - np.exp(t1_prev*(b-a))
-                c_2 = np.exp(gc_1)/(b-a)
-                c_3 = np.exp(gc_1-(μs*fr*t0))/gc_0
+                f_2 = ne.evaluate("f2_gc0 - exp(t1_prev*(b-a))")
+                c_2 = ne.evaluate("exp(gc_1)/(b-a)")
+                c_3 = ne.evaluate("exp(gc_1-(μs*fr*t0))/gc_0")
 
-                int1 = int0 + c_2*f_2 + c_3*f_3
+                int1 = ne.evaluate("int0 + c_2*f_2 + c_3*f_3")
 
-                sol += rk_coef*f_1*int1
+                sol += ne.evaluate("rk_coef*f_1*int1")
 
-            return a*μs*fr*dt*sol, int1
+            return ne.evaluate("a*μs*fr*dt*sol"), int1
 
         self.integrate_event = integrate_event
 
@@ -2141,17 +2141,7 @@ class Experiment():
             dt_array[t0_array < 0] += t0_array[t0_array < 0]
             t0_array[t0_array < 0] = 0
 
-            # Now, invalid events have dt_array < 0 or idx_array == 0
-            # Now mask out invalid events (pre-competent, or null) - i.e. those with remaining -ve dt
-            t0_array[idx_array == 0] = 9999
-            dt_array[idx_array == 0] = 9999
-            sort_idx = np.argsort(t0_array, axis=1)
-            t0_array = np.take_along_axis(t0_array, sort_idx, axis=1) # Removes entirely incompetent events
-            dt_array = np.take_along_axis(dt_array, sort_idx, axis=1)
-            idx_array = np.take_along_axis(idx_array, sort_idx, axis=1)
-            ns_test_array = np.take_along_axis(ns_test_array, sort_idx, axis=1)
-
-            mask = (t0_array != 9999)
+            mask = (idx_array == 0)
 
             ns_array = np.zeros(np.shape(mask), dtype=np.float32)
             n_traj_reduced = np.shape(mask)[0]
@@ -2577,14 +2567,6 @@ class Experiment():
                 dt_array[t0_array < 0] += t0_array[t0_array < 0]
                 t0_array[t0_array < 0] = 0
 
-                # Now, invalid events have dt_array < 0 or idx_array == 0
-                # Now mask out invalid events (pre-competent, or null) - i.e. those with remaining -ve dt
-                # t0_array[idx_array == 0] = 9999
-                # sort_idx = np.argsort(t0_array, axis=1)
-                # t0_array = np.take_along_axis(t0_array, sort_idx, axis=1) # Removes entirely incompetent events
-                # dt_array = np.take_along_axis(dt_array, sort_idx, axis=1)
-                # idx_array = np.take_along_axis(idx_array, sort_idx, axis=1)
-
                 mask = (idx_array == 0)
 
                 ns_array = np.zeros(np.shape(mask), dtype=np.float32)
@@ -2593,6 +2575,9 @@ class Experiment():
 
             # Now generate an array containing the reef fraction, t0, and dt for each index
             fr_array = translate(idx_array, self.dicts['rf'])
+
+            # Set fr/t0/dt to 0 for all invalid events (to prevent pre-competent events
+            # from ruining integrals)
             fr_array[mask] = 0 # Reef fraction
             t0_array[mask] = 0 # Time at arrival
             dt_array[mask] = 0 # Time spent at site
