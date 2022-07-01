@@ -208,7 +208,7 @@ class Experiment():
                  'grid' : 'C',
 
                  # Maximum number of events
-                 'e_num' : 60,
+                 'e_num' : 75,
 
                  # Velocity interpolation method
                  'interp_method': 'cgrid_velocity',
@@ -244,8 +244,7 @@ class Experiment():
             self.cfg['test_params'] = kwargs['test_params']
 
 
-        # @njit
-        def integrate_event(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, dt):
+        def integrate_event_numexpr(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, dt):
 
             sol = np.zeros_like(int0, dtype=np.float32)
 
@@ -287,9 +286,54 @@ class Experiment():
 
             return ne.evaluate("a*μs*fr*dt*sol"), int1
 
+        def integrate_event(psi0, int0, fr, a, b, tc, μs, σ, λ, ν, t0, t1_prev, dt):
+
+            sol = np.zeros_like(int0, dtype=np.float32)
+
+            # Precompute reused terms
+            gc_0 = b-a+(μs*fr)
+            gc_1 = μs*psi0
+
+            f2_gc0 = np.exp(t0*(b-a))
+            f3_gc0 = np.exp(t0*gc_0)
+
+            # Integrate
+            for h, rk_coef in zip(np.array([0, 0.5, 1], dtype=np.float32),
+                                  np.array([1/6, 2/3, 1/6], dtype=np.float32)):
+
+                if h == 0:
+                    t = t0
+                else:
+                    t = t0 + h*dt
+
+                if σ != 0:
+                    surv_t = ((1. - σ*(λ*(t + tc))**ν)**(1/σ)).astype(np.float32)
+                else:
+                    surv_t = np.exp(-(λ*(t + tc))**ν).astype(np.float32)
+
+                if h == 0:
+                    f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*psi0)
+                    f_3 = np.float32([0])
+                else:
+                    f_1 = surv_t*np.exp(-b*t)*np.exp(-μs*(psi0+fr*(t-t0)))
+                    f_3 = np.exp(t*gc_0) - f3_gc0
+
+                f_2 = f2_gc0 - np.exp(t1_prev*(b-a))
+                c_2 = np.exp(gc_1)/(b-a)
+                c_3 = np.exp(gc_1-(μs*fr*t0))/gc_0
+
+                int1 = int0 + c_2*f_2 + c_3*f_3
+
+                sol += rk_coef*f_1*int1
+
+            return a*μs*fr*dt*sol, int1
+
         self.integrate_event = integrate_event
+        self.integrate_event_numexpr = integrate_event_numexpr
 
         self.status['config'] = True
+
+
 
 
     def generate_fieldset(self, **kwargs):
@@ -1920,6 +1964,66 @@ class Experiment():
                                 particle.i59 = particle.current_reef_idx
                                 particle.ts59 = particle.current_reef_ts0
                                 particle.dt59 = particle.current_reef_ts
+                            elif particle.e_num == 60:
+                                particle.i60 = particle.current_reef_idx
+                                particle.ts60 = particle.current_reef_ts0
+                                particle.dt60 = particle.current_reef_ts
+                            elif particle.e_num == 61:
+                                particle.i61 = particle.current_reef_idx
+                                particle.ts61 = particle.current_reef_ts0
+                                particle.dt61 = particle.current_reef_ts
+                            elif particle.e_num == 62:
+                                particle.i62 = particle.current_reef_idx
+                                particle.ts62 = particle.current_reef_ts0
+                                particle.dt62 = particle.current_reef_ts
+                            elif particle.e_num == 63:
+                                particle.i63 = particle.current_reef_idx
+                                particle.ts63 = particle.current_reef_ts0
+                                particle.dt63 = particle.current_reef_ts
+                            elif particle.e_num == 64:
+                                particle.i64 = particle.current_reef_idx
+                                particle.ts64 = particle.current_reef_ts0
+                                particle.dt64 = particle.current_reef_ts
+                            elif particle.e_num == 65:
+                                particle.i65 = particle.current_reef_idx
+                                particle.ts65 = particle.current_reef_ts0
+                                particle.dt65 = particle.current_reef_ts
+                            elif particle.e_num == 66:
+                                particle.i66 = particle.current_reef_idx
+                                particle.ts66 = particle.current_reef_ts0
+                                particle.dt66 = particle.current_reef_ts
+                            elif particle.e_num == 67:
+                                particle.i67 = particle.current_reef_idx
+                                particle.ts67 = particle.current_reef_ts0
+                                particle.dt67 = particle.current_reef_ts
+                            elif particle.e_num == 68:
+                                particle.i68 = particle.current_reef_idx
+                                particle.ts68 = particle.current_reef_ts0
+                                particle.dt68 = particle.current_reef_ts
+                            elif particle.e_num == 69:
+                                particle.i69 = particle.current_reef_idx
+                                particle.ts69 = particle.current_reef_ts0
+                                particle.dt69 = particle.current_reef_ts
+                            elif particle.e_num == 70:
+                                particle.i70 = particle.current_reef_idx
+                                particle.ts70 = particle.current_reef_ts0
+                                particle.dt70 = particle.current_reef_ts
+                            elif particle.e_num == 71:
+                                particle.i71 = particle.current_reef_idx
+                                particle.ts71 = particle.current_reef_ts0
+                                particle.dt71 = particle.current_reef_ts
+                            elif particle.e_num == 72:
+                                particle.i72 = particle.current_reef_idx
+                                particle.ts72 = particle.current_reef_ts0
+                                particle.dt72 = particle.current_reef_ts
+                            elif particle.e_num == 73:
+                                particle.i73 = particle.current_reef_idx
+                                particle.ts73 = particle.current_reef_ts0
+                                particle.dt73 = particle.current_reef_ts
+                            elif particle.e_num == 74:
+                                particle.i74 = particle.current_reef_idx
+                                particle.ts74 = particle.current_reef_ts0
+                                particle.dt74 = particle.current_reef_ts
 
                                 particle.active = 0 # Deactivate particle, since no more reefs can be saved
 
@@ -2406,6 +2510,7 @@ class Experiment():
             filters: Dict of filters for eez/grp
             subset: Integer factor to subset particle IDs by
             e_num_ceil: Maximum number of events to consider
+            numexpr: Whether to use numexpr acceleration
 
 
         Important note: all units are converted to DAYS within this function
@@ -2439,6 +2544,12 @@ class Experiment():
             self.cfg['subset'] = int(kwargs['subset'])
         else:
             self.cfg['subset'] = False
+
+        if 'numexpr' in kwargs.keys():
+            self.integrate = self.integrate_event_numexpr if kwargs['numexpr'] else self.integrate_event
+        else:
+            self.integrate = self.integrate_event_numexpr
+
 
         # Define translation function
         def translate(c1, c2):
@@ -2573,6 +2684,19 @@ class Experiment():
                 n_traj_reduced = np.shape(mask)[0]
                 n_events_reduced = np.shape(mask)[1]
 
+                # Copy over parameters for netcdf file
+                if fhi == 0:
+                    file_params = {'timestep_seconds': nc.timestep_seconds,
+                                   'min_competency_seconds': nc.min_competency_seconds,
+                                   'max_lifespan_seconds': nc.max_lifespan_seconds,
+                                   'larvae_per_cell': nc.larvae_per_cell,
+                                   'total_larvae_released': int(nc.total_larvae_released)*len(fh_list),
+                                   'e_num': nc.e_num,
+                                   'release_year': nc.release_year,
+                                   'partitions': nc.partitions}
+
+                    self.cfg['run_time'] = timedelta(seconds=int(nc.max_lifespan_seconds))
+
             # Now generate an array containing the reef fraction, t0, and dt for each index
             fr_array = translate(idx_array, self.dicts['rf'])
 
@@ -2592,15 +2716,15 @@ class Experiment():
                 t0 = t0_array[:, i]
                 dt = dt_array[:, i]
 
-                ns_array[:, i], int0 = self.integrate_event(psi0, int0, fr,
-                                                            self.cfg['a'],
-                                                            self.cfg['b'],
-                                                            self.cfg['tc'],
-                                                            self.cfg['μs'],
-                                                            self.cfg['σ'],
-                                                            self.cfg['λ'],
-                                                            self.cfg['ν'],
-                                                            t0, t1_prev, dt)
+                ns_array[:, i], int0 = self.integrate(psi0, int0, fr,
+                                                      self.cfg['a'],
+                                                      self.cfg['b'],
+                                                      self.cfg['tc'],
+                                                      self.cfg['μs'],
+                                                      self.cfg['σ'],
+                                                      self.cfg['λ'],
+                                                      self.cfg['ν'],
+                                                      t0, t1_prev, dt)
 
                 t1_prev = t0 + dt
                 psi0 = psi0 + fr*dt
@@ -2698,7 +2822,15 @@ class Experiment():
                                        σ=self.cfg['σ'],
                                        λ=self.cfg['λ'],
                                        ν=self.cfg['ν'],
-                                       configuration=self.cfg['preset']))
+                                       configuration=self.cfg['preset'],
+                                       timestep_seconds=file_params['timestep_seconds'],
+                                       min_competency_seconds=file_params['min_competency_seconds'],
+                                       max_lifespan_seconds=file_params['max_lifespan_seconds'],
+                                       larvae_per_cell=file_params['larvae_per_cell'],
+                                       total_larvae_released=file_params['total_larvae_released'],
+                                       e_num=file_params['e_num'],
+                                       release_year=file_params['release_year'],
+                                       partitions=file_params['partitions'],))
 
         self.status['matrix'] = True
 
@@ -2740,15 +2872,17 @@ class Experiment():
         plt_t0 = 0
         plt_t1 = 120
         plt_t = np.linspace(plt_t0, plt_t1, num=200)/365
+        plt_t[0] = plt_t[1]/2 # Plotting hack to prevent division by zero
 
         f_competent = (self.cfg['a']/(self.cfg['a']-self.cfg['b']))*(np.exp(-self.cfg['b']*(plt_t-self.cfg['tc']))-np.exp(-self.cfg['a']*(plt_t-self.cfg['tc'])))
         f_competent[plt_t-self.cfg['tc'] < 0] = 0
+
         if self.cfg['σ'] != 0:
             f_surv = (1 - self.cfg['σ']*(self.cfg['λ']*(plt_t))**self.cfg['ν'])**(1/self.cfg['σ'])
+            μm = (self.cfg['λ']*self.cfg['ν']*(self.cfg['λ']*plt_t)**(self.cfg['ν']-1))/(1-self.cfg['σ']*(self.cfg['λ']*plt_t)**self.cfg['ν'])
         else:
             f_surv = np.exp(-(self.cfg['λ']*plt_t)**self.cfg['ν'])
-
-        μm = (self.cfg['λ']*self.cfg['ν']*(self.cfg['λ']*plt_t)**(self.cfg['ν']-1))/(1-self.cfg['σ']*(self.cfg['λ']*plt_t)**self.cfg['ν'])
+            μm = (self.cfg['λ']*self.cfg['ν'])*(self.cfg['λ']*plt_t)**(self.cfg['ν']-1)
 
         f_comp_surv = f_competent*f_surv
 
