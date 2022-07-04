@@ -208,7 +208,7 @@ class Experiment():
                  'grid' : 'C',
 
                  # Maximum number of events
-                 'e_num' : 75,
+                 'e_num' : 60,
 
                  # Velocity interpolation method
                  'interp_method': 'cgrid_velocity',
@@ -1964,66 +1964,6 @@ class Experiment():
                                 particle.i59 = particle.current_reef_idx
                                 particle.ts59 = particle.current_reef_ts0
                                 particle.dt59 = particle.current_reef_ts
-                            elif particle.e_num == 60:
-                                particle.i60 = particle.current_reef_idx
-                                particle.ts60 = particle.current_reef_ts0
-                                particle.dt60 = particle.current_reef_ts
-                            elif particle.e_num == 61:
-                                particle.i61 = particle.current_reef_idx
-                                particle.ts61 = particle.current_reef_ts0
-                                particle.dt61 = particle.current_reef_ts
-                            elif particle.e_num == 62:
-                                particle.i62 = particle.current_reef_idx
-                                particle.ts62 = particle.current_reef_ts0
-                                particle.dt62 = particle.current_reef_ts
-                            elif particle.e_num == 63:
-                                particle.i63 = particle.current_reef_idx
-                                particle.ts63 = particle.current_reef_ts0
-                                particle.dt63 = particle.current_reef_ts
-                            elif particle.e_num == 64:
-                                particle.i64 = particle.current_reef_idx
-                                particle.ts64 = particle.current_reef_ts0
-                                particle.dt64 = particle.current_reef_ts
-                            elif particle.e_num == 65:
-                                particle.i65 = particle.current_reef_idx
-                                particle.ts65 = particle.current_reef_ts0
-                                particle.dt65 = particle.current_reef_ts
-                            elif particle.e_num == 66:
-                                particle.i66 = particle.current_reef_idx
-                                particle.ts66 = particle.current_reef_ts0
-                                particle.dt66 = particle.current_reef_ts
-                            elif particle.e_num == 67:
-                                particle.i67 = particle.current_reef_idx
-                                particle.ts67 = particle.current_reef_ts0
-                                particle.dt67 = particle.current_reef_ts
-                            elif particle.e_num == 68:
-                                particle.i68 = particle.current_reef_idx
-                                particle.ts68 = particle.current_reef_ts0
-                                particle.dt68 = particle.current_reef_ts
-                            elif particle.e_num == 69:
-                                particle.i69 = particle.current_reef_idx
-                                particle.ts69 = particle.current_reef_ts0
-                                particle.dt69 = particle.current_reef_ts
-                            elif particle.e_num == 70:
-                                particle.i70 = particle.current_reef_idx
-                                particle.ts70 = particle.current_reef_ts0
-                                particle.dt70 = particle.current_reef_ts
-                            elif particle.e_num == 71:
-                                particle.i71 = particle.current_reef_idx
-                                particle.ts71 = particle.current_reef_ts0
-                                particle.dt71 = particle.current_reef_ts
-                            elif particle.e_num == 72:
-                                particle.i72 = particle.current_reef_idx
-                                particle.ts72 = particle.current_reef_ts0
-                                particle.dt72 = particle.current_reef_ts
-                            elif particle.e_num == 73:
-                                particle.i73 = particle.current_reef_idx
-                                particle.ts73 = particle.current_reef_ts0
-                                particle.dt73 = particle.current_reef_ts
-                            elif particle.e_num == 74:
-                                particle.i74 = particle.current_reef_idx
-                                particle.ts74 = particle.current_reef_ts0
-                                particle.dt74 = particle.current_reef_ts
 
                                 particle.active = 0 # Deactivate particle, since no more reefs can be saved
 
