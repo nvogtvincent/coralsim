@@ -10,6 +10,7 @@ import numpy as np
 import os
 from glob import glob
 from sys import argv
+from tqdm import tqdm
 
 ##############################################################################
 # DEFINE INPUT FILES                                                         #
@@ -23,30 +24,30 @@ dirs['traj_out'] = dirs['root'] + 'TRAJ/POSTPROC/'
 
 # PATTERN
 pattern = 'WINDS_coralsim_' #'WINDS_coralsim_2020_1_3_1_2.nc
-
-# EVENTS
-e_num = 60
+years = [int(argv[1])]
 
 ##############################################################################
 # LOOP THROUGH FILES AND MERGE                                               #
 ##############################################################################
 
-fh_list = sorted(glob(dirs['traj_in'] + pattern + '*'))
-years = np.unique([int(item.split('/')[-1].split('_')[-5]) for item in fh_list])
+# fh_list = sorted(glob(dirs['traj_in'] + pattern + '*'))
+# years = np.unique([int(item.split('/')[-1].split('_')[-5]) for item in fh_list])
 
 for year in years:
     # Get list of all files from year
-    fh_list_year = sorted(glob(dirs['traj_in'] + pattern + str(year) + '*'))
+    fh_list_year = sorted(glob(dirs['traj_in'] + pattern + str(year) + '_*'))
     months = np.unique([int(item.split('/')[-1].split('_')[-4]) for item in fh_list_year])
+
+    pbar = tqdm(total=len(fh_list_year))
 
     for month in months:
         # Get list of all files from month
-        fh_list_month = sorted(glob(dirs['traj_in'] + pattern + str(year) + '_' + str(month) + '*'))
+        fh_list_month = sorted(glob(dirs['traj_in'] + pattern + str(year) + '_' + str(month) + '_*'))
         days = np.unique([int(item.split('/')[-1].split('_')[-3]) for item in fh_list_month])
 
         for day in days:
             # Get list of all files from day
-            fh_list_day = sorted(glob(dirs['traj_in'] + pattern + str(year) + '_' + str(month) + '_' + str(day) + '*'))
+            fh_list_day = sorted(glob(dirs['traj_in'] + pattern + str(year) + '_' + str(month) + '_' + str(day) + '_*'))
             part_list = np.unique([int(item.split('/')[-1].split('_')[-1].split('.')[0]) for item in fh_list_day])
             assert len(part_list) == 1 # Check there is no variable number of partitions
             assert len(fh_list_day) == part_list[0] # Check all files are present
@@ -88,6 +89,8 @@ for year in years:
                         else:
                             var_dict[v_name] = np.concatenate((var_dict[v_name], file[v_name].values))
 
+                pbar.update(1)
+
             for v_name in var_dict.keys():
                 var_dict[v_name] = ('traj', var_dict[v_name].flatten())
 
@@ -95,13 +98,7 @@ for year in years:
                                   coords={'traj': np.arange(len(var_dict['e_num'][1]))},
                                   attrs=attr_dict)
 
-            # new_fh = pattern + str(year) + '_' + str(month) + '_' + str(day) + '.nc'
-
-            # new_file.to_netcdf(path=dirs['traj_out'] + new_fh, format='NETCDF4')
-
             new_fh = pattern + str(year) + '_' + str(month) + '_' + str(day) + '.zarr'
 
             new_file.to_zarr(store=dirs['traj_out'] + new_fh, mode='w',
                              consolidated=True)
-
-            print(0)
