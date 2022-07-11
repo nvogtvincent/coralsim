@@ -201,7 +201,7 @@ class Experiment():
                  'view_lon1': 48.9,
                  'view_lat0': -12.5,
                  'view_lat1': -12.3,
-                 'test_number': 100,
+                 'test_number': 5,
                  'lsm_varname': 'lsm_w',
 
                  # Grid type
@@ -2457,6 +2457,15 @@ class Experiment():
 
         """
 
+        # Define conversion factor (probably seconds per year)
+        conv_f = 31536000
+
+        # Cumulative day total for a year
+        day_mo = np.array([0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31])
+        day_mo_cs = np.cumsum(day_mo)
+        day_mo_ly = np.array([0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31])
+        day_mo_ly_cs = np.cumsum(day_mo_ly)
+
         if not self.status['dict']:
             self.generate_dict()
 
@@ -2464,12 +2473,12 @@ class Experiment():
             raise KeyError('Please supply a parameters dictionary.')
         else:
             # Convert all units to years to prevent overflows from large numbers
-            self.cfg['a'] = np.array(kwargs['parameters']['a']*31536000, dtype=np.float32)
-            self.cfg['b'] = np.array(kwargs['parameters']['b']*31536000, dtype=np.float32)
-            self.cfg['tc'] = np.array(kwargs['parameters']['tc']/31536000, dtype=np.float32)
-            self.cfg['μs'] = np.array(kwargs['parameters']['μs']*31536000, dtype=np.float32)
+            self.cfg['a'] = np.array(kwargs['parameters']['a']*conv_f, dtype=np.float32)
+            self.cfg['b'] = np.array(kwargs['parameters']['b']*conv_f, dtype=np.float32)
+            self.cfg['tc'] = np.array(kwargs['parameters']['tc']/conv_f, dtype=np.float32)
+            self.cfg['μs'] = np.array(kwargs['parameters']['μs']*conv_f, dtype=np.float32)
             self.cfg['σ'] = np.array(kwargs['parameters']['σ'], dtype=np.float32)
-            self.cfg['λ'] = np.array(kwargs['parameters']['λ']*31536000, dtype=np.float32)
+            self.cfg['λ'] = np.array(kwargs['parameters']['λ']*conv_f, dtype=np.float32)
             self.cfg['ν'] = np.array(kwargs['parameters']['ν'], dtype=np.float32)
 
         if 'fh' not in kwargs.keys():
@@ -2490,7 +2499,6 @@ class Experiment():
         else:
             self.integrate = self.integrate_event_numexpr
 
-
         # Define translation function
         def translate(c1, c2):
             # Adapted from Maxim's excellent suggestion:
@@ -2504,12 +2512,11 @@ class Experiment():
         fh_list = sorted(glob(self.dirs['traj'] + kwargs['fh']))
 
         # Open the first file to find the number of events stored and remaining parameters
-        with Dataset(fh_list[0], mode='r') as nc:
-            self.cfg['max_events'] = nc.e_num
+        with xr.open_zarr(fh_list[0]) as file:
+            self.cfg['max_events'] = file.attrs['e_num']
 
-            self.cfg['dt'] = int(nc.timestep_seconds)/31536000
-            self.cfg['lpc'] = int(nc.larvae_per_cell)
-            self.cfg['partitions'] = int(nc.partitions)
+            self.cfg['dt'] = int(file.attrs['timestep_seconds'])/conv_f
+            self.cfg['lpc'] = int(file.attrs['larvae_per_cell'])
 
             if self.cfg['subset']:
                 if self.cfg['lpc']/self.cfg['subset'] < 16:
@@ -2517,35 +2524,30 @@ class Experiment():
                 else:
                     self.cfg['lpc'] /= self.cfg['subset']
 
-            if self.cfg['tc']*31536000 < int(nc.min_competency_seconds):
-                raise Exception('Minimum competency chosen is smaller than the value used at run-time (' + str(int(nc.min_competency_seconds)) +'s).')
+            if self.cfg['tc']*conv_f < int(file.attrs['min_competency_seconds']):
+                raise Exception('Minimum competency chosen is smaller than the value used at run-time (' + str(int(file.attrs['min_competency_seconds'])) +'s).')
 
         # Get the full time range
         t0_list = []
 
         for fh in fh_list:
-            with Dataset(fh, mode='r') as nc:
-                try:
-                    y0 = int(nc.release_year)
-                except:
-                    continue
-
-            t0_list.append(y0)
+            with xr.open_zarr(fh) as file:
+                y0 = int(file.attrs['release_year'])
+                t0_list.append(y0)
 
         t0_list = np.array(t0_list)
-        n_months = (t0_list.max()-t0_list.min()+1)*12
-        root_y = t0_list.min()
 
-        if 'partitions' not in self.cfg:
-            raise Exception('Number of partitions not found.')
+        # Check all files are present
+        if len(np.unique(t0_list)) != 1:
+            raise Exception('More than year present!')
+        else:
+            y0 = t0_list[0]
 
-        if self.cfg['rpm']*self.cfg['partitions']*n_months != len(fh_list):
-            print('Warning: there is an unexpected number of files!')
-            print(str(n_months) + ' months')
-            print(str(self.cfg['rpm']) + ' releases per month')
-            print(str(self.cfg['partitions']) + ' partitions')
-            print(str(self.cfg['partitions']*self.cfg['rpm']*n_months) + ' files expected')
-            print(str(len(fh_list)) + ' files found')
+        ly = False if y0%4 else True
+        n_days = 366 if ly else 365
+
+        if n_days != len(fh_list):
+            raise Exception('Warning: there is an unexpected number of files!')
 
         # Get a list of group IDs
         source_reef_mask = (self.fields['rc'] > 0)
@@ -2568,33 +2570,26 @@ class Experiment():
         sink_grp_num = len(sink_grp_list)
 
         # Set up matrices
-        matrix1 = np.zeros((source_grp_num, sink_grp_num, n_months), dtype=np.float32) # For probability (ij)
-        matrix2 = np.zeros_like(matrix1, dtype=np.float32) # For flux (ij)
-        matrix3 = np.zeros_like(matrix1, dtype=np.float32) # For transit time (ij)
+        matrix1 = np.zeros((source_grp_num, sink_grp_num, n_days), dtype=np.float32) # For number settling
+        matrix2 = np.zeros_like(matrix1, dtype=np.float32) # For number settling * reef fraction
+        matrix3 = np.zeros_like(matrix1, dtype=np.float32) # For number settling * reef fraction * transit time
+        matrix4 = np.zeros_like(matrix1, dtype=np.int32) # For number of events
+
+        # Create attribute dictionary
+        attr_dict = {}
 
         for fhi, fh in tqdm(enumerate(fh_list), total=len(fh_list)):
-            with Dataset(fh, mode='r') as nc:
-                try:
-                    pid = nc.variables['trajectory'][:] # Trajectory ID
-                except:
-                    continue
-
-                # Filter IDs
-                if self.cfg['subset']:
-                    sub_id = np.where(pid%self.cfg['subset'] == 0)[0]
-                else:
-                    sub_id = np.arange(len(pid))
-
-                n_traj = np.shape(nc.variables['e_num'][:][sub_id])[0] # Number of trajectories in file/subset
+            with xr.open_zarr(fh, mask_and_scale=False) as file:
+                n_traj = np.shape(file.variables['e_num'][:])[0] # Number of trajectories in file/subset
 
                 if not n_traj:
                     # Skip if there are no trajectories stored in file
-                    continue
+                    raise Exception('No trajectories found in file ' + str(fh) + '!')
 
                 # Extract origin date from filename
-                y0 = int(nc.release_year)
-                m0 = int(nc.release_month)
-                d0 = int(nc.release_day)
+                y0 = int(file.attrs['release_year'])
+                m0 = int(file.attrs['release_month'])
+                d0 = int(file.attrs['release_day'])
                 assert y0 < 2025 and y0 > 1990
                 assert m0 < 13 and m0 > 0
                 assert d0 < 32 and d0 > 0
@@ -2607,11 +2602,11 @@ class Experiment():
                 ns_array = np.zeros((n_traj, self.cfg['max_events']), dtype=np.float32)
 
                 for i in range(self.cfg['max_events']):
-                    idx_array[:, i] = nc.variables['i' + str(i)][:, 0][sub_id]
-                    t0_array[:, i] = nc.variables['ts' + str(i)][:, 0][sub_id]*self.cfg['dt']-self.cfg['tc'] # Time at arrival
-                    dt_array[:, i] = nc.variables['dt' + str(i)][:, 0][sub_id]*self.cfg['dt'] # Time at site
+                    idx_array[:, i] = file['i' + str(i)].values
+                    t0_array[:, i] = file['ts' + str(i)].values*self.cfg['dt']-self.cfg['tc'] # Time at arrival
+                    dt_array[:, i] = file['dt' + str(i)].values*self.cfg['dt'] # Time at site
 
-                idx0_array = nc.variables['idx0'][:][sub_id]
+                idx0_array = file['idx0'].values
 
                 # Adjust times for events that are partially pre-competent
                 idx_array[t0_array + dt_array < 0] = 0 # Corresponds to events that are entirely pre-competent
@@ -2624,18 +2619,21 @@ class Experiment():
                 n_traj_reduced = np.shape(mask)[0]
                 n_events_reduced = np.shape(mask)[1]
 
-                # Copy over parameters for netcdf file
-                if fhi == 0:
-                    file_params = {'timestep_seconds': nc.timestep_seconds,
-                                   'min_competency_seconds': nc.min_competency_seconds,
-                                   'max_lifespan_seconds': nc.max_lifespan_seconds,
-                                   'larvae_per_cell': nc.larvae_per_cell,
-                                   'total_larvae_released': int(nc.total_larvae_released)*len(fh_list),
-                                   'e_num': nc.e_num,
-                                   'release_year': nc.release_year,
-                                   'partitions': nc.partitions}
+                # Copy over parameters for output file
+                for attr_name in ['parcels_version', 'timestep_seconds',
+                                  'min_competency_seconds', 'max_lifespan_seconds',
+                                  'larvae_per_cell', 'interp_method', 'e_num',
+                                  'release_year']:
+                    if fhi == 0:
+                        attr_dict[attr_name] = file.attrs[attr_name]
+                    else:
+                        assert attr_dict[attr_name] == file.attrs[attr_name]
 
-                    self.cfg['run_time'] = timedelta(seconds=int(nc.max_lifespan_seconds))
+                if fhi == 0:
+                    attr_dict['total_larvae_released'] = file.attrs['total_larvae_released']
+                    self.cfg['run_time'] = timedelta(seconds=int(attr_dict['max_lifespan_seconds']))
+                else:
+                    attr_dict['total_larvae_released'] += file.attrs['total_larvae_released']
 
             # Now generate an array containing the reef fraction, t0, and dt for each index
             fr_array = translate(idx_array, self.dicts['rf'])
@@ -2685,12 +2683,12 @@ class Experiment():
             # Extract origin group and project
             grp0 = np.floor(idx0_array/(2**8)).astype(np.uint8)
             grp0_array = np.zeros_like(idx_array, dtype=np.uint8)
-            grp0_array[:] = grp0
+            grp0_array[:] = grp0.reshape((-1, 1))
             grp0_array = np.ma.masked_array(grp0_array, mask=mask).compressed()
 
             # Extract origin reef cover and project
             rc0_array = np.zeros_like(idx_array, dtype=np.float32)
-            rc0_array[:] = translate(idx0_array, self.dicts['rc'])
+            rc0_array[:] = translate(idx0_array, self.dicts['rc']).reshape((-1, 1))
             rc0_array = np.ma.masked_array(rc0_array, mask=mask).compressed()
 
             filter_mask = 1-np.isin(grp0_array, source_grp_list)*np.isin(grp0_array, sink_grp_list)
@@ -2701,12 +2699,11 @@ class Experiment():
             t0_ij_array = np.ma.masked_array(t0_array, mask=filter_mask).compressed()
             dt_j_array = np.ma.masked_array(dt_array, mask=filter_mask).compressed()
 
-            # p_matrix_weights = ns_ij_array/(self.cfg['lpc']*self.cfg['rpm']*cpg_i_array)
-            # f_matrix_weights = ns_ij_array*rc_i_array*self.cfg['ldens']
-            # t_matrix_weights = f_matrix_weights*(self.cfg['tc'] + t0_ij_array + 0.5*dt_j_array)
-
             # Find time index
-            ti = m0 + (y0 - root_y)*12 - 1
+            if ly:
+                ti = day_mo_ly_cs[m0-1] + d0
+            else:
+                ti = day_mo_cs[m0-1] + d0
 
             # Now grid quantities:
             # p(i, j, t) = sum(ns[i, j])/(lpc[i]*rpm*cpg[i])
@@ -2747,14 +2744,27 @@ class Experiment():
                                                 weights=(ns_ij_array*rc_i_array*self.cfg['ldens']*
                                                          (self.cfg['tc'] + t0_ij_array + 0.5*dt_j_array)))[0]
 
+            matrix4[:, :, ti] += np.histogram2d(grp_i_array, grp_j_array,
+                                                bins=[source_grp_bnds, sink_grp_bnds])[0]
+
         # Now convert to xarray
-        matrix = xr.Dataset(data_vars=dict(ns=(['source_group', 'sink_group', 'time'], matrix1),
-                                           ns_rc=(['source_group', 'sink_group', 'time'], matrix2),
-                                           ns_rc_t=(['source_group', 'sink_group', 'time'], matrix3),
-                                           cpg=(['source_group'], translate(source_grp_list, self.dicts['grp_numcell']))),
+        matrix = xr.Dataset(data_vars=dict(ns=(['source_group', 'sink_group', 'time'], matrix1,
+                                               {'full_name': 'normalised_settling_larvae',
+                                                'weights': 'ns_ij'}),
+                                           ns_rc=(['source_group', 'sink_group', 'time'], matrix2,
+                                                  {'full_name': 'rf-weighted_settling_larvae',
+                                                   'weights': 'ns_ij*rf_i'}),
+                                           ns_rc_t=(['source_group', 'sink_group', 'time'], matrix3,
+                                                    {'full_name': 'rf-t-weighted_settling_larvae',
+                                                     'weights': 'ns_ij*t_ij*rf_i'}),
+                                           en=(['source_group', 'sink_group', 'time'], matrix4,
+                                               {'full_name': 'number_of_events_registered',
+                                                'weights': '1'}),
+                                           cpg=(['source_group'], translate(source_grp_list, self.dicts['grp_numcell']),
+                                                {'full_name': 'cells_per_group'})),
                             coords=dict(source_group=source_grp_list, sink_group=sink_grp_list,
-                                        time=pd.date_range(start=datetime(year=root_y, month=1, day=1, hour=0),
-                                                           periods=n_months, freq='M')),
+                                        time=pd.date_range(start=datetime(year=y0, month=1, day=1, hour=0),
+                                                           periods=n_days, freq='D')),
                             attrs=dict(a=self.cfg['a'],
                                        b=self.cfg['b'],
                                        tc=self.cfg['tc'],
@@ -2763,14 +2773,14 @@ class Experiment():
                                        λ=self.cfg['λ'],
                                        ν=self.cfg['ν'],
                                        configuration=self.cfg['preset'],
-                                       timestep_seconds=file_params['timestep_seconds'],
-                                       min_competency_seconds=file_params['min_competency_seconds'],
-                                       max_lifespan_seconds=file_params['max_lifespan_seconds'],
-                                       larvae_per_cell=file_params['larvae_per_cell'],
-                                       total_larvae_released=file_params['total_larvae_released'],
-                                       e_num=file_params['e_num'],
-                                       release_year=file_params['release_year'],
-                                       partitions=file_params['partitions'],))
+                                       parcels_version=attr_dict['parcels_version'],
+                                       timestep_seconds=attr_dict['timestep_seconds'],
+                                       min_competency_seconds=attr_dict['min_competency_seconds'],
+                                       max_lifespan_seconds=attr_dict['max_lifespan_seconds'],
+                                       larvae_per_cell=attr_dict['larvae_per_cell'],
+                                       interp_method=attr_dict['interp_method'],
+                                       e_num=attr_dict['e_num'],
+                                       total_larvae_released=attr_dict['total_larvae_released'],))
 
         self.status['matrix'] = True
 
@@ -2854,7 +2864,3 @@ class Experiment():
         ax2.tick_params(color='r', labelcolor='r')
 
         plt.savefig(self.dirs['fig'] + fh, dpi=300)
-
-
-
-
