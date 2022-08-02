@@ -47,10 +47,10 @@ bio_data['tc'] = timedelta(days=bio_data['tc']).total_seconds()
 sey = Experiment('WINDS_' + bio_code)
 sey.config(dirs, preset='WINDS', releases_per_month=1)
 sey.generate_dict()
-matrices = sey.generate_matrix(fh='WINDS_coralsim_' + year + '*.nc' ,
-                               parameters=bio_data, figure=True)
+matrices = sey.generate_matrix(fh='WINDS_coralsim_' + year + '*.zarr' ,
+                               parameters=bio_data, figure=True, numexpr=False)
 
-matrix_fh = dirs['traj'] + 'STEP_1/WINDS_submatrix_' + bio_code + '_' + year + '.nc'
-matrices.to_netcdf(matrix_fh)
+matrix_fh = dirs['output'] + 'STEP_1/WINDS_submatrix_' + bio_code + '_' + year + '.zarr'
+matrices.to_zarr(store=matrix_fh, mode='w', consolidated=True)
 
 sey.plot_parameters(fh='biological_parameters_' + bio_code + '.png')
