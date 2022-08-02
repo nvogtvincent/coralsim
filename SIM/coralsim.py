@@ -2525,7 +2525,7 @@ class Experiment():
                     self.cfg['lpc'] /= self.cfg['subset']
 
             if self.cfg['tc']*conv_f < int(file.attrs['min_competency_seconds']):
-                raise Exception('Minimum competency chosen is smaller than the value used at run-time (' + str(int(file.attrs['min_competency_seconds'])) +'s).')
+                print('Warning: minimum competency chosen is smaller than the value used at run-time (' + str(int(file.attrs['min_competency_seconds'])) +'s).')
 
         # Get the full time range
         t0_list = []
@@ -2701,9 +2701,9 @@ class Experiment():
 
             # Find time index
             if ly:
-                ti = day_mo_ly_cs[m0-1] + d0
+                ti = day_mo_ly_cs[m0-1] + d0 - 1
             else:
-                ti = day_mo_cs[m0-1] + d0
+                ti = day_mo_cs[m0-1] + d0 - 1
 
             # Now grid quantities:
             # p(i, j, t) = sum(ns[i, j])/(lpc[i]*rpm*cpg[i])
@@ -2745,7 +2745,7 @@ class Experiment():
                                                          (self.cfg['tc'] + t0_ij_array + 0.5*dt_j_array)))[0]
 
             matrix4[:, :, ti] += np.histogram2d(grp_i_array, grp_j_array,
-                                                bins=[source_grp_bnds, sink_grp_bnds])[0]
+                                                bins=[source_grp_bnds, sink_grp_bnds])[0].astype(np.int32)
 
         # Now convert to xarray
         matrix = xr.Dataset(data_vars=dict(ns=(['source_group', 'sink_group', 'time'], matrix1,
